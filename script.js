@@ -42,6 +42,8 @@ let finalSelectedChapterImages = [];
 onAuthStateChanged(auth, (user) => {
     const loginModal = document.getElementById("loginModal");
     const logoutBtn = document.getElementById("logoutBtn");
+    const splash = document.getElementById("authSplash");
+    if (splash) splash.classList.add("hidden");
     if (user && user.uid !== ADMIN_UID) {
         signOut(auth).finally(() => alert("This account is not allowed to use the uploader."));
         return;
@@ -54,8 +56,31 @@ onAuthStateChanged(auth, (user) => {
     } else {
         if (loginModal) loginModal.classList.remove("hidden");
         if (logoutBtn) logoutBtn.classList.add("hidden");
+        prefillRememberedEmail();
     }
 });
+
+// --- "Remember me": keeps the session (Firebase local persistence) and pre-fills the email next time ---
+const REMEMBER_EMAIL_KEY = "sk_remember_email";
+function prefillRememberedEmail() {
+    try {
+        const saved = localStorage.getItem(REMEMBER_EMAIL_KEY);
+        const emailEl = document.getElementById("loginEmail");
+        const box = document.getElementById("rememberMeCheckbox");
+        if (saved && emailEl && !emailEl.value) { emailEl.value = saved; if (box) box.checked = true; }
+    } catch (e) { /* storage blocked: ignore */ }
+}
+function setLoginError(msg) {
+    const el = document.getElementById("loginError");
+    if (el) el.textContent = msg || "";
+}
+window.togglePasswordVisibility = function() {
+    const input = document.getElementById("loginPassword");
+    const btn = document.getElementById("togglePwBtn");
+    const show = input.type === "password";
+    input.type = show ? "text" : "password";
+    btn.innerHTML = show ? '<i class="fa-solid fa-eye-slash"></i>' : '<i class="fa-solid fa-eye"></i>';
+};
 
 window.handleLogin = async function(event) {
     event.preventDefault();
@@ -66,25 +91,31 @@ window.handleLogin = async function(event) {
 
     // Slow down guessing: 5 wrong tries -> wait 60 seconds (Firebase also rate-limits on the server)
     const lockUntil = Number(sessionStorage.getItem("sk_lock") || 0);
-    if (Date.now() < lockUntil) { alert("Too many attempts. Please wait " + Math.ceil((lockUntil - Date.now()) / 1000) + "s."); return; }
+    if (Date.now() < lockUntil) { setLoginError("Too many attempts. Please wait " + Math.ceil((lockUntil - Date.now()) / 1000) + "s."); return; }
+    setLoginError("");
 
     submitBtn.disabled = true;
-    submitBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Authenticating...`;
+    submitBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Signing in...`;
 
     try {
         const persistence = rememberMe ? browserLocalPersistence : browserSessionPersistence;
         await setPersistence(auth, persistence);
         await signInWithEmailAndPassword(auth, email, password);
         sessionStorage.removeItem("sk_fail");
+        try {
+            if (rememberMe) localStorage.setItem(REMEMBER_EMAIL_KEY, email);
+            else localStorage.removeItem(REMEMBER_EMAIL_KEY);
+        } catch (e) { /* ignore */ }
         document.getElementById("loginForm").reset();
     } catch (err) {
+        console.error("Login error code:", err && err.code);   // check F12 > Console to see the real reason
         const fails = Number(sessionStorage.getItem("sk_fail") || 0) + 1;
         sessionStorage.setItem("sk_fail", String(fails));
         if (fails >= 5) { sessionStorage.setItem("sk_lock", String(Date.now() + 60000)); sessionStorage.setItem("sk_fail", "0"); }
-        alert(err && err.code === "auth/too-many-requests" ? "Too many attempts. Try again later." : "Login failed. Check your email and password.");
+        setLoginError(err && err.code === "auth/too-many-requests" ? "Too many attempts. Try again later." : "Login failed. Check your email and password.");
     } finally {
         submitBtn.disabled = false;
-        submitBtn.innerHTML = `<i class="fa-solid fa-right-to-bracket"></i> Login to Uploader`;
+        submitBtn.innerHTML = `<i class="fa-solid fa-right-to-bracket"></i> Sign in`;
     }
 };
 
@@ -180,13 +211,13 @@ window.switchTab = function(tabName) {
     const formManga = document.getElementById("mangaUploadForm");
     const formChapter = document.getElementById("chapterUploadForm");
     if (tabName === 'mangaTab') {
-        btnManga.className = "py-2 rounded-lg text-xs font-bold text-white bg-sakura-600 shadow-md transition";
-        btnChapter.className = "py-2 rounded-lg text-xs font-bold text-slate-400 hover:text-white transition";
+        btnManga.className = "tab active";
+        btnChapter.className = "tab";
         formManga.classList.remove("hidden");
         formChapter.classList.add("hidden");
     } else {
-        btnChapter.className = "py-2 rounded-lg text-xs font-bold text-white bg-sakura-600 shadow-md transition";
-        btnManga.className = "py-2 rounded-lg text-xs font-bold text-slate-400 hover:text-white transition";
+        btnChapter.className = "tab active";
+        btnManga.className = "tab";
         formChapter.classList.remove("hidden");
         formManga.classList.add("hidden");
         populateMangaDropdown();
@@ -198,7 +229,7 @@ async function populateMangaDropdown() {
     if (!select) return;
     try {
         const snapshot = await get(child(ref(database), 'manga_list'));
-        select.innerHTML = '<option value="" disabled selected>-- Select target manga --</option>';
+        select.innerHTML = '<option value="" disabled selected>Select target manga</option>';
         if (snapshot.exists()) {
             const data = snapshot.val();
             Object.keys(data).forEach(mangaId => {
@@ -249,7 +280,7 @@ window.loadDevicePhotosToGallery = async function(event) {
     progressWrapper.classList.remove("hidden");
     progressBar.style.width = "0%";
     progressPercent.textContent = "0%";
-    progressText.innerHTML = `<i class="fa-solid fa-spinner fa-spin text-sakura-400"></i> Staging Photos (0/${files.length})...`;
+    progressText.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Staging Photos (0/${files.length})...`;
     let newlyAdded = [];
     let completedCount = 0;
     const total = files.length;
@@ -273,7 +304,7 @@ window.loadDevicePhotosToGallery = async function(event) {
                     const percent = Math.round((completedCount / total) * 100);
                     progressBar.style.width = percent + "%";
                     progressPercent.textContent = percent + "%";
-                    progressText.innerHTML = `<i class="fa-solid fa-spinner fa-spin text-sakura-400"></i> Staging Photos (${completedCount}/${total})...`;
+                    progressText.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Staging Photos (${completedCount}/${total})...`;
                     resolve();
                 };
                 reader.onerror = () => { completedCount++; resolve(); };
@@ -302,7 +333,7 @@ window.loadZipFileToGallery = async function(event) {
     progressWrapper.classList.remove("hidden");
     progressBar.style.width = "0%";
     progressPercent.textContent = "0%";
-    progressText.innerHTML = `<i class="fa-solid fa-spinner fa-spin text-sakura-400"></i> Extracting ZIP...`;
+    progressText.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Extracting ZIP...`;
     try {
         const zip = await JSZip.loadAsync(file);
         let zipFiles = [];
@@ -340,7 +371,7 @@ window.loadZipFileToGallery = async function(event) {
             const percent = Math.round((loadedCount / total) * 100);
             progressBar.style.width = percent + "%";
             progressPercent.textContent = percent + "%";
-            progressText.innerHTML = `<i class="fa-solid fa-spinner fa-spin text-sakura-400"></i> Extracting ZIP (${loadedCount}/${total})...`;
+            progressText.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Extracting ZIP (${loadedCount}/${total})...`;
         }
         document.getElementById("realZipFileInput").value = "";
         tempModalSelectedImages = [...tempModalSelectedImages, ...newlyExtracted];
@@ -361,30 +392,22 @@ async function renderSakuraGalleryGrid() {
     const gallery = await getAllGalleryItemsDB();
     grid.innerHTML = "";
     if (gallery.length === 0) {
-        grid.innerHTML = `
-            <div class="col-span-3 py-10 text-center text-xs text-slate-500 italic">
-                No photos in gallery yet desu~ Click 'Add Photos' or 'Upload ZIP' above.
-            </div>
-        `;
+        grid.innerHTML = `<div class="gallery-empty">No photos yet. Tap "Add photos" or "Upload ZIP".</div>`;
         countBadge.textContent = "0 selected";
         return;
     }
     gallery.forEach((item) => {
         const isSelected = tempModalSelectedImages.some(sel => sel.id === item.id);
         const card = document.createElement("div");
-        card.className = `relative aspect-square rounded-xl border-2 overflow-hidden transition group cursor-pointer ${isSelected ? 'border-sakura-500 shadow-sakura-glow ring-2 ring-sakura-500/50' : 'border-dark-border bg-dark-card'}`;
+        card.className = `gcard${isSelected ? ' on' : ''}`;
         card.onclick = () => toggleModalImageSelection(item.id);
         card.innerHTML = `
-            <img src="${esc(item.data)}" alt="${esc(item.name)}" class="w-full h-full object-cover group-hover:scale-105 transition duration-300">
-            <div class="absolute top-1.5 right-1.5 w-6 h-6 rounded-lg flex items-center justify-center text-xs transition ${isSelected ? 'bg-sakura-600 text-white shadow-md' : 'bg-black/60 text-slate-300 border border-white/20'}">
-                <i class="fa-solid ${isSelected ? 'fa-check' : 'fa-plus'}"></i>
-            </div>
-            <button type="button" onclick="event.stopPropagation(); deletePhotoFromSakuraGallery(${jsArg(item.id)})" class="absolute bottom-1.5 right-1.5 w-6 h-6 rounded-lg bg-red-600 text-white flex items-center justify-center text-[10px] shadow hover:bg-red-500 transition z-10" title="Delete Photo">
+            <img src="${esc(item.data)}" alt="${esc(item.name)}">
+            <div class="tick"><i class="fa-solid ${isSelected ? 'fa-check' : 'fa-plus'}"></i></div>
+            <button type="button" class="gdel" onclick="event.stopPropagation(); deletePhotoFromSakuraGallery(${jsArg(item.id)})" title="Delete photo">
                 <i class="fa-solid fa-trash-can"></i>
             </button>
-            <div class="absolute bottom-0 left-0 right-7 bg-black/70 backdrop-blur-xs p-1 text-[9px] text-slate-200 truncate text-center">
-                ${esc(item.name)}
-            </div>
+            <div class="gname">${esc(item.name)}</div>
         `;
         grid.appendChild(card);
     });
@@ -423,19 +446,19 @@ function renderSakuraSelectedPreview() {
     const triggerText = document.getElementById("galleryTriggerText");
     if (finalSelectedChapterImages.length === 0) {
         wrapper.classList.add("hidden");
-        triggerText.textContent = "Open Telegram-Style Gallery";
+        triggerText.textContent = "Open Gallery";
         return;
     }
     wrapper.classList.remove("hidden");
-    badge.textContent = `${finalSelectedChapterImages.length} image(s) selected`;
+    badge.textContent = `${finalSelectedChapterImages.length} selected`;
     triggerText.textContent = `Add more images (${finalSelectedChapterImages.length} ready)`;
     grid.innerHTML = "";
     finalSelectedChapterImages.forEach((imgObj, index) => {
         const card = document.createElement("div");
-        card.className = "relative aspect-square rounded-lg border border-dark-border bg-dark-card overflow-hidden shadow-md group";
+        card.className = "thumb";
         card.innerHTML = `
-            <img src="${esc(imgObj.data)}" alt="Preview" class="w-full h-full object-cover">
-            <button type="button" onclick="removeSakuraSelectedImage(${index})" class="absolute top-1 right-1 w-5 h-5 rounded-full bg-red-600 text-white flex items-center justify-center text-[10px] shadow hover:bg-red-500 transition" title="Remove">
+            <img src="${esc(imgObj.data)}" alt="Preview">
+            <button type="button" onclick="removeSakuraSelectedImage(${index})" title="Remove">
                 <i class="fa-solid fa-xmark"></i>
             </button>
         `;
@@ -469,9 +492,9 @@ window.selectCustomOption = function(hiddenInputId, displayTextId, value, menuId
     document.getElementById(hiddenInputId).value = value;
     const textEl = document.getElementById(displayTextId);
     textEl.textContent = value;
-    if (value === 'Complete') textEl.className = 'text-emerald-400 font-bold';
-    else if (value === 'Pause') textEl.className = 'text-amber-400 font-bold';
-    else textEl.className = 'text-sakura-300 font-bold';
+    if (value === 'Complete') textEl.className = 't-complete';
+    else if (value === 'Pause') textEl.className = 't-pause';
+    else textEl.className = 't-ongoing';
     document.getElementById(menuId).classList.add('hidden');
 }
 
@@ -535,7 +558,7 @@ window.handleMangaUpload = async function(event) {
     if (!imageFile || !title) return;
     
     submitBtn.disabled = true;
-    submitBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Uploading to Cloudinary...`;
+    submitBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Uploading...`;
     try {
         const coverImageUrl = await uploadToCloudinary(imageFile);
         const mangaId = 'manga-' + Date.now();
@@ -566,7 +589,7 @@ window.handleMangaUpload = async function(event) {
         alert("Upload Error: " + err.message);
     } finally {
         submitBtn.disabled = false;
-        submitBtn.innerHTML = `<i class="fa-solid fa-upload"></i> Upload Manga Cover to Cloudinary`;
+        submitBtn.innerHTML = `<i class="fa-solid fa-upload"></i> Upload Manga Cover`;
     }
 }
 
@@ -597,7 +620,7 @@ window.handleChapterUpload = async function(event) {
         let count = 0;
         
         for (const imgObj of finalSelectedChapterImages) {
-            progressText.innerHTML = `<i class="fa-solid fa-spinner fa-spin text-sakura-400"></i> Uploading to Cloudinary (${count + 1}/${total})...`;
+            progressText.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Uploading to Cloudinary (${count + 1}/${total})...`;
             const secureUrl = await uploadToCloudinary(imgObj.data);
             uploadedPagesUrls.push(secureUrl);
             count++;
@@ -652,72 +675,62 @@ async function renderManagedCovers() {
         listContainer.innerHTML = "";
         if (!snapshot.exists()) {
             if (countBadge) countBadge.textContent = "0 Items";
-            listContainer.innerHTML = `
-                <div class="text-center py-5 text-xs text-slate-500 italic">
-                    No uploaded mangas or chapters found in Firebase yet desu~
-                </div>
-            `;
+            listContainer.innerHTML = `<div class="empty">Nothing uploaded yet.</div>`;
             return;
         }
-        
+
         const data = snapshot.val();
         const mangaKeys = Object.keys(data);
         if (countBadge) countBadge.textContent = `${mangaKeys.length} Mangas`;
-        
+
         mangaKeys.forEach((mangaId) => {
             const manga = data[mangaId];
             const mangaCard = document.createElement("div");
-            mangaCard.className = "p-3 rounded-xl bg-dark-base/70 border border-dark-border space-y-2.5";
-            
+            mangaCard.className = "manga";
+
             const mangaStatus = manga.status || manga.chapter || 'Ongoing';
+            const statusCls = mangaStatus === 'Complete' ? 't-complete' : (mangaStatus === 'Pause' ? 't-pause' : 't-ongoing');
             const chaptersObj = manga.chapters || {};
             const chapterKeys = Object.keys(chaptersObj);
-            
+
             let chaptersHtml = '';
             if (chapterKeys.length > 0) {
+                chaptersHtml = '<div class="chapters">';
                 chapterKeys.forEach(chId => {
                     const ch = chaptersObj[chId];
                     const pagesLen = ch.pages ? ch.pages.length : 0;
                     chaptersHtml += `
-                        <div class="flex items-center justify-between pl-4 pr-2 py-1.5 rounded-lg bg-dark-card border border-dark-border text-xs">
-                            <span class="font-semibold text-sakura-300"><i class="fa-solid fa-bookmark mr-1.5 text-[10px]"></i>${esc(ch.chapter_title || chId)} (${pagesLen} pages)</span>
-                            <button type="button" onclick="promptDelete('chapter', ${jsArg(mangaId)}, ${jsArg(chId)})" class="text-red-400 hover:text-red-300 p-1" title="Delete Chapter">
-                                <i class="fa-solid fa-trash-can text-[10px]"></i>
+                        <div class="chapter">
+                            <span><i class="fa-solid fa-bookmark"></i><b>${esc(ch.chapter_title || chId)}</b> &middot; ${pagesLen} pages</span>
+                            <button type="button" onclick="promptDelete('chapter', ${jsArg(mangaId)}, ${jsArg(chId)})" class="icon-btn del" title="Delete chapter">
+                                <i class="fa-solid fa-trash-can"></i>
                             </button>
                         </div>
                     `;
                 });
+                chaptersHtml += '</div>';
             } else {
-                chaptersHtml = `<div class="text-[10px] text-slate-500 italic pl-4">No chapters uploaded yet.</div>`;
+                chaptersHtml = `<div class="empty-inline">No chapters yet.</div>`;
             }
-            
+
             mangaCard.innerHTML = `
-                <div class="flex items-center justify-between">
-                    <div class="flex items-center gap-2.5 overflow-hidden">
-                        <img src="${esc(safeUrl(manga.image || manga.cover_image))}" alt="${esc(manga.title)}" class="w-9 h-12 object-cover rounded-md shrink-0 shadow">
-                        <div class="flex flex-col truncate">
-                            <span class="text-xs font-bold text-slate-100 truncate">${esc(manga.title)}</span>
-                            <div class="flex items-center gap-2 mt-0.5">
-                                <span class="text-[9px] text-sakura-400 font-bold uppercase">${esc(mangaStatus)}</span>
-                                <span class="text-[9px] text-sakura-300 font-bold bg-dark-card px-1 rounded">${esc(manga.coverType || 'Manga')}</span>
-                            </div>
+                <div class="manga-top">
+                    <img src="${esc(safeUrl(manga.image || manga.cover_image))}" alt="${esc(manga.title)}">
+                    <div class="manga-info">
+                        <strong>${esc(manga.title)}</strong>
+                        <div class="manga-meta">
+                            <span class="${statusCls}">${esc(mangaStatus)}</span>
+                            <span class="type">${esc(manga.coverType || 'Manga')} &middot; ${chapterKeys.length} ch</span>
                         </div>
                     </div>
-                    <div class="flex items-center gap-1.5 shrink-0 ml-2">
-                        <button type="button" onclick="openEditModal(${jsArg(mangaId)}, ${jsArg(mangaStatus)})" class="w-7 h-7 rounded-lg bg-sakura-500/10 text-sakura-400 hover:bg-sakura-500 hover:text-white transition flex items-center justify-center" title="Edit Status">
-                            <i class="fa-solid fa-pen text-[10px]"></i>
-                        </button>
-                        <button type="button" onclick="promptDelete('manga', ${jsArg(mangaId)})" class="w-7 h-7 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/10 hover:text-white transition flex items-center justify-center" title="Delete Manga">
-                            <i class="fa-solid fa-trash-can text-[10px]"></i>
-                        </button>
-                    </div>
+                    <button type="button" onclick="openEditModal(${jsArg(mangaId)}, ${jsArg(mangaStatus)})" class="icon-btn" title="Edit status">
+                        <i class="fa-solid fa-pen"></i>
+                    </button>
+                    <button type="button" onclick="promptDelete('manga', ${jsArg(mangaId)})" class="icon-btn del" title="Delete manga">
+                        <i class="fa-solid fa-trash-can"></i>
+                    </button>
                 </div>
-                <div class="space-y-1 pt-1 border-t border-dark-border/60">
-                    <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Chapters (${chapterKeys.length}):</span>
-                    <div class="space-y-1 mt-1 max-h-36 overflow-y-auto pr-1">
-                        ${chaptersHtml}
-                    </div>
-                </div>
+                ${chaptersHtml}
             `;
             listContainer.appendChild(mangaCard);
         });
@@ -803,7 +816,7 @@ function initSakuraPetals() {
         speedX: Math.random() * 0.3 - 0.15,
         rotation: Math.random() * 360,
         rotationSpeed: Math.random() * 1 - 0.5,
-        opacity: Math.random() * 0.4 + 0.2
+        opacity: Math.random() * 0.25 + 0.1
     }));
     function animate() {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -819,7 +832,7 @@ function initSakuraPetals() {
             ctx.translate(p.x, p.y);
             ctx.rotate((p.rotation * Math.PI) / 180);
             ctx.globalAlpha = p.opacity;
-            ctx.fillStyle = '#ff5c8a';
+            ctx.fillStyle = '#2dd4bf';
             ctx.beginPath();
             ctx.ellipse(0, 0, p.size, p.size * 1.5, 0, 0, Math.PI * 2);
             ctx.fill();
