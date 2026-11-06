@@ -1,6 +1,7 @@
 // --- SAKURA REALM: CLOUDINARY & FIREBASE UPLOADER ENGINE ---
 import { initializeApp } from "https://www.gstatic.com/firebasejs/13.0.0/firebase-app.js";
 import { getDatabase, ref, set, get, update, remove, child } from "https://www.gstatic.com/firebasejs/13.0.0/firebase-database.js";
+import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, setPersistence, browserLocalPersistence, browserSessionPersistence } from "https://www.gstatic.com/firebasejs/13.0.0/firebase-auth.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyBAyTxN3YWVFzkmyAsd6SWF8f2YYpbc0T8",
@@ -13,13 +14,21 @@ const firebaseConfig = {
   measurementId: "G-7VZ07WZK6D"
 };
 
+// --- Security helpers: everything read from the database / file names is untrusted ---
+const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const jsArg = (v) => esc(JSON.stringify(String(v == null ? '' : v)));   // safe value inside onclick="fn(...)"
+const safeUrl = (u) => { try { const x = new URL(String(u || '').trim()); return x.protocol === 'https:' ? x.href : ''; } catch (e) { return ''; } };
+// Only this account may use the uploader (the Firebase rules enforce the same UID on the server)
+const ADMIN_UID = 'FAuHEJDN2bepag6m6bFaGbrNdkq2';
+
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
 const database = getDatabase(app);
+const auth = getAuth(app);
 
 // Cloudinary Configuration Constants
 const CLOUD_NAME = "dxbelpram";
-const UPLOAD_PRESET = "ml_default"; // Standard unsigned preset or your custom preset
+const UPLOAD_PRESET = "sakura_uploads_1"; 
 
 // Local IndexedDB for temporary gallery staging
 const DB_NAME = "SakuraRealmUploaderDB";
@@ -28,6 +37,64 @@ const STORE_NAME = "galleryImages";
 let db = null;
 let tempModalSelectedImages = [];
 let finalSelectedChapterImages = [];
+
+// --- FIREBASE AUTHENTICATION STATE & LOGIN HANDLERS ---
+onAuthStateChanged(auth, (user) => {
+    const loginModal = document.getElementById("loginModal");
+    const logoutBtn = document.getElementById("logoutBtn");
+    if (user && user.uid !== ADMIN_UID) {
+        signOut(auth).finally(() => alert("This account is not allowed to use the uploader."));
+        return;
+    }
+    if (user) {
+        if (loginModal) loginModal.classList.add("hidden");
+        if (logoutBtn) logoutBtn.classList.remove("hidden");
+        renderManagedCovers();
+        populateMangaDropdown();
+    } else {
+        if (loginModal) loginModal.classList.remove("hidden");
+        if (logoutBtn) logoutBtn.classList.add("hidden");
+    }
+});
+
+window.handleLogin = async function(event) {
+    event.preventDefault();
+    const email = document.getElementById("loginEmail").value.trim();
+    const password = document.getElementById("loginPassword").value;
+    const rememberMe = document.getElementById("rememberMeCheckbox").checked;
+    const submitBtn = document.getElementById("loginSubmitBtn");
+
+    // Slow down guessing: 5 wrong tries -> wait 60 seconds (Firebase also rate-limits on the server)
+    const lockUntil = Number(sessionStorage.getItem("sk_lock") || 0);
+    if (Date.now() < lockUntil) { alert("Too many attempts. Please wait " + Math.ceil((lockUntil - Date.now()) / 1000) + "s."); return; }
+
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Authenticating...`;
+
+    try {
+        const persistence = rememberMe ? browserLocalPersistence : browserSessionPersistence;
+        await setPersistence(auth, persistence);
+        await signInWithEmailAndPassword(auth, email, password);
+        sessionStorage.removeItem("sk_fail");
+        document.getElementById("loginForm").reset();
+    } catch (err) {
+        const fails = Number(sessionStorage.getItem("sk_fail") || 0) + 1;
+        sessionStorage.setItem("sk_fail", String(fails));
+        if (fails >= 5) { sessionStorage.setItem("sk_lock", String(Date.now() + 60000)); sessionStorage.setItem("sk_fail", "0"); }
+        alert(err && err.code === "auth/too-many-requests" ? "Too many attempts. Try again later." : "Login failed. Check your email and password.");
+    } finally {
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = `<i class="fa-solid fa-right-to-bracket"></i> Login to Uploader`;
+    }
+};
+
+window.handleLogout = async function() {
+    try {
+        await signOut(auth);
+    } catch (err) {
+        alert("Logout Error: " + err.message);
+    }
+};
 
 function initDB() {
     return new Promise((resolve, reject) => {
@@ -124,7 +191,7 @@ window.switchTab = function(tabName) {
         formManga.classList.add("hidden");
         populateMangaDropdown();
     }
-};
+}
 
 async function populateMangaDropdown() {
     const select = document.getElementById("chapterMangaSelect");
@@ -149,7 +216,7 @@ async function populateMangaDropdown() {
 
 window.startGalleryPickerProcess = function() {
     openSakuraGalleryModal();
-};
+}
 
 window.openSakuraGalleryModal = async function() {
     const modal = document.getElementById("sakuraGalleryModal");
@@ -158,19 +225,19 @@ window.openSakuraGalleryModal = async function() {
         tempModalSelectedImages = [...finalSelectedChapterImages];
     }
     await renderSakuraGalleryGrid();
-};
+}
 
 window.closeSakuraGalleryModal = function() {
     document.getElementById("sakuraGalleryModal").classList.add("hidden");
-};
+}
 
 window.triggerDevicePhotoPicker = function() {
     document.getElementById("realGalleryFileInput").click();
-};
+}
 
 window.triggerZipFilePicker = function() {
     document.getElementById("realZipFileInput").click();
-};
+}
 
 window.loadDevicePhotosToGallery = async function(event) {
     const files = Array.from(event.target.files);
@@ -223,7 +290,7 @@ window.loadDevicePhotosToGallery = async function(event) {
         progressWrapper.classList.add("hidden");
         alert("Error loading photos: " + err.message);
     }
-};
+}
 
 window.loadZipFileToGallery = async function(event) {
     const file = event.target.files[0];
@@ -285,7 +352,7 @@ window.loadZipFileToGallery = async function(event) {
         progressWrapper.classList.add("hidden");
         alert("Error reading ZIP file: " + err.message);
     }
-};
+}
 
 async function renderSakuraGalleryGrid() {
     const grid = document.getElementById("sakuraGalleryGrid");
@@ -308,15 +375,15 @@ async function renderSakuraGalleryGrid() {
         card.className = `relative aspect-square rounded-xl border-2 overflow-hidden transition group cursor-pointer ${isSelected ? 'border-sakura-500 shadow-sakura-glow ring-2 ring-sakura-500/50' : 'border-dark-border bg-dark-card'}`;
         card.onclick = () => toggleModalImageSelection(item.id);
         card.innerHTML = `
-            <img src="${item.data}" alt="${item.name}" class="w-full h-full object-cover group-hover:scale-105 transition duration-300">
+            <img src="${esc(item.data)}" alt="${esc(item.name)}" class="w-full h-full object-cover group-hover:scale-105 transition duration-300">
             <div class="absolute top-1.5 right-1.5 w-6 h-6 rounded-lg flex items-center justify-center text-xs transition ${isSelected ? 'bg-sakura-600 text-white shadow-md' : 'bg-black/60 text-slate-300 border border-white/20'}">
                 <i class="fa-solid ${isSelected ? 'fa-check' : 'fa-plus'}"></i>
             </div>
-            <button type="button" onclick="event.stopPropagation(); deletePhotoFromSakuraGallery('${item.id}')" class="absolute bottom-1.5 right-1.5 w-6 h-6 rounded-lg bg-red-600 text-white flex items-center justify-center text-[10px] shadow hover:bg-red-500 transition z-10" title="Delete Photo">
+            <button type="button" onclick="event.stopPropagation(); deletePhotoFromSakuraGallery(${jsArg(item.id)})" class="absolute bottom-1.5 right-1.5 w-6 h-6 rounded-lg bg-red-600 text-white flex items-center justify-center text-[10px] shadow hover:bg-red-500 transition z-10" title="Delete Photo">
                 <i class="fa-solid fa-trash-can"></i>
             </button>
             <div class="absolute bottom-0 left-0 right-7 bg-black/70 backdrop-blur-xs p-1 text-[9px] text-slate-200 truncate text-center">
-                ${item.name}
+                ${esc(item.name)}
             </div>
         `;
         grid.appendChild(card);
@@ -335,19 +402,19 @@ window.toggleModalImageSelection = async function(itemId) {
         tempModalSelectedImages.push(item);
     }
     await renderSakuraGalleryGrid();
-};
+}
 
 window.deletePhotoFromSakuraGallery = async function(itemId) {
     await deleteGalleryItemDB(itemId);
     tempModalSelectedImages = tempModalSelectedImages.filter(sel => sel.id !== itemId);
     await renderSakuraGalleryGrid();
-};
+}
 
 window.confirmSakuraGallerySelection = function() {
     finalSelectedChapterImages = [...tempModalSelectedImages];
     closeSakuraGalleryModal();
     renderSakuraSelectedPreview();
-};
+}
 
 function renderSakuraSelectedPreview() {
     const wrapper = document.getElementById("sakuraSelectedPreviewWrapper");
@@ -367,7 +434,7 @@ function renderSakuraSelectedPreview() {
         const card = document.createElement("div");
         card.className = "relative aspect-square rounded-lg border border-dark-border bg-dark-card overflow-hidden shadow-md group";
         card.innerHTML = `
-            <img src="${imgObj.data}" alt="Preview" class="w-full h-full object-cover">
+            <img src="${esc(imgObj.data)}" alt="Preview" class="w-full h-full object-cover">
             <button type="button" onclick="removeSakuraSelectedImage(${index})" class="absolute top-1 right-1 w-5 h-5 rounded-full bg-red-600 text-white flex items-center justify-center text-[10px] shadow hover:bg-red-500 transition" title="Remove">
                 <i class="fa-solid fa-xmark"></i>
             </button>
@@ -379,12 +446,12 @@ function renderSakuraSelectedPreview() {
 window.removeSakuraSelectedImage = function(index) {
     finalSelectedChapterImages.splice(index, 1);
     renderSakuraSelectedPreview();
-};
+}
 
 window.clearSakuraSelection = function() {
     finalSelectedChapterImages = [];
     renderSakuraSelectedPreview();
-};
+}
 
 window.toggleCustomDropdown = function(menuId) {
     const menus = ['statusMenu', 'coverTypeMenu', 'modalStatusMenu'];
@@ -396,7 +463,7 @@ window.toggleCustomDropdown = function(menuId) {
     });
     const targetMenu = document.getElementById(menuId);
     if (targetMenu) targetMenu.classList.toggle('hidden');
-};
+}
 
 window.selectCustomOption = function(hiddenInputId, displayTextId, value, menuId) {
     document.getElementById(hiddenInputId).value = value;
@@ -406,7 +473,7 @@ window.selectCustomOption = function(hiddenInputId, displayTextId, value, menuId
     else if (value === 'Pause') textEl.className = 'text-amber-400 font-bold';
     else textEl.className = 'text-sakura-300 font-bold';
     document.getElementById(menuId).classList.add('hidden');
-};
+}
 
 document.addEventListener('click', function(e) {
     if (!e.target.closest('.relative')) {
@@ -429,7 +496,7 @@ window.toggleGenresShowMore = function() {
         toggleText.textContent = "Show Less";
         toggleIcon.className = "fa-solid fa-chevron-up text-[8px]";
     }
-};
+}
 
 window.previewCoverImage = function(event) {
     const file = event.target.files[0];
@@ -446,7 +513,7 @@ window.previewCoverImage = function(event) {
         previewImg.src = "";
         previewContainer.classList.add("hidden");
     }
-};
+}
 
 // --- MANGA COVER UPLOAD (CLOUDINARY & FIREBASE) ---
 window.handleMangaUpload = async function(event) {
@@ -469,9 +536,7 @@ window.handleMangaUpload = async function(event) {
     
     submitBtn.disabled = true;
     submitBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Uploading to Cloudinary...`;
-
     try {
-        // Upload cover image to Cloudinary server (`dxbelpram`)
         const coverImageUrl = await uploadToCloudinary(imageFile);
         const mangaId = 'manga-' + Date.now();
         
@@ -488,7 +553,6 @@ window.handleMangaUpload = async function(event) {
             chapters: {}
         };
         
-        // Save manga metadata and Cloudinary secure URL to Firebase Realtime Database
         await set(ref(database, 'manga_list/' + mangaId), newMangaData);
         
         document.getElementById("mangaUploadForm").reset();
@@ -504,7 +568,7 @@ window.handleMangaUpload = async function(event) {
         submitBtn.disabled = false;
         submitBtn.innerHTML = `<i class="fa-solid fa-upload"></i> Upload Manga Cover to Cloudinary`;
     }
-};
+}
 
 // --- CHAPTER UPLOAD (CLOUDINARY & FIREBASE) ---
 window.handleChapterUpload = async function(event) {
@@ -550,7 +614,6 @@ window.handleChapterUpload = async function(event) {
             pages: uploadedPagesUrls
         };
         
-        // Save chapter with Cloudinary image URLs into Firebase
         await set(ref(database, `manga_list/${mangaId}/chapters/${chapterId}`), newChapterData);
         
         if (chapterTitleInput) chapterTitleInput.value = "";
@@ -570,7 +633,7 @@ window.handleChapterUpload = async function(event) {
     } finally {
         submitBtn.disabled = false;
     }
-};
+}
 
 function showSuccessNotice(msgEl) {
     if (!msgEl) return;
@@ -617,8 +680,8 @@ async function renderManagedCovers() {
                     const pagesLen = ch.pages ? ch.pages.length : 0;
                     chaptersHtml += `
                         <div class="flex items-center justify-between pl-4 pr-2 py-1.5 rounded-lg bg-dark-card border border-dark-border text-xs">
-                            <span class="font-semibold text-sakura-300"><i class="fa-solid fa-bookmark mr-1.5 text-[10px]"></i>${ch.chapter_title || chId} (${pagesLen} pages)</span>
-                            <button type="button" onclick="promptDelete('chapter', '${mangaId}', '${chId}')" class="text-red-400 hover:text-red-300 p-1" title="Delete Chapter">
+                            <span class="font-semibold text-sakura-300"><i class="fa-solid fa-bookmark mr-1.5 text-[10px]"></i>${esc(ch.chapter_title || chId)} (${pagesLen} pages)</span>
+                            <button type="button" onclick="promptDelete('chapter', ${jsArg(mangaId)}, ${jsArg(chId)})" class="text-red-400 hover:text-red-300 p-1" title="Delete Chapter">
                                 <i class="fa-solid fa-trash-can text-[10px]"></i>
                             </button>
                         </div>
@@ -631,20 +694,20 @@ async function renderManagedCovers() {
             mangaCard.innerHTML = `
                 <div class="flex items-center justify-between">
                     <div class="flex items-center gap-2.5 overflow-hidden">
-                        <img src="${manga.image || manga.cover_image}" alt="${manga.title}" class="w-9 h-12 object-cover rounded-md shrink-0 shadow">
+                        <img src="${esc(safeUrl(manga.image || manga.cover_image))}" alt="${esc(manga.title)}" class="w-9 h-12 object-cover rounded-md shrink-0 shadow">
                         <div class="flex flex-col truncate">
-                            <span class="text-xs font-bold text-slate-100 truncate">${manga.title}</span>
+                            <span class="text-xs font-bold text-slate-100 truncate">${esc(manga.title)}</span>
                             <div class="flex items-center gap-2 mt-0.5">
-                                <span class="text-[9px] text-sakura-400 font-bold uppercase">${mangaStatus}</span>
-                                <span class="text-[9px] text-sakura-300 font-bold bg-dark-card px-1 rounded">${manga.coverType || 'Manga'}</span>
+                                <span class="text-[9px] text-sakura-400 font-bold uppercase">${esc(mangaStatus)}</span>
+                                <span class="text-[9px] text-sakura-300 font-bold bg-dark-card px-1 rounded">${esc(manga.coverType || 'Manga')}</span>
                             </div>
                         </div>
                     </div>
                     <div class="flex items-center gap-1.5 shrink-0 ml-2">
-                        <button type="button" onclick="openEditModal('${mangaId}', '${mangaStatus}')" class="w-7 h-7 rounded-lg bg-sakura-500/10 text-sakura-400 hover:bg-sakura-500 hover:text-white transition flex items-center justify-center" title="Edit Status">
+                        <button type="button" onclick="openEditModal(${jsArg(mangaId)}, ${jsArg(mangaStatus)})" class="w-7 h-7 rounded-lg bg-sakura-500/10 text-sakura-400 hover:bg-sakura-500 hover:text-white transition flex items-center justify-center" title="Edit Status">
                             <i class="fa-solid fa-pen text-[10px]"></i>
                         </button>
-                        <button type="button" onclick="promptDelete('manga', '${mangaId}')" class="w-7 h-7 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/10 hover:text-white transition flex items-center justify-center" title="Delete Manga">
+                        <button type="button" onclick="promptDelete('manga', ${jsArg(mangaId)})" class="w-7 h-7 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/10 hover:text-white transition flex items-center justify-center" title="Delete Manga">
                             <i class="fa-solid fa-trash-can text-[10px]"></i>
                         </button>
                     </div>
@@ -667,11 +730,11 @@ window.openEditModal = function(mangaId, currentStatus) {
     document.getElementById("editMangaId").value = mangaId;
     selectCustomOption('modalStatusValue', 'modalStatusText', currentStatus, 'modalStatusMenu');
     document.getElementById("editStatusModal").classList.remove("hidden");
-};
+}
 
 window.closeEditModal = function() {
     document.getElementById("editStatusModal").classList.add("hidden");
-};
+}
 
 window.saveMangaStatus = async function() {
     const mangaId = document.getElementById("editMangaId").value;
@@ -686,7 +749,7 @@ window.saveMangaStatus = async function() {
     } catch (err) {
         alert("Error updating status: " + err.message);
     }
-};
+}
 
 window.promptDelete = function(targetType, parentId, targetId = '') {
     document.getElementById("deleteTargetType").value = targetType;
@@ -699,11 +762,11 @@ window.promptDelete = function(targetType, parentId, targetId = '') {
         descEl.textContent = "Are you sure you want to delete this chapter from Firebase?";
     }
     document.getElementById("deleteConfirmModal").classList.remove("hidden");
-};
+}
 
 window.closeDeleteModal = function() {
     document.getElementById("deleteConfirmModal").classList.add("hidden");
-};
+}
 
 window.confirmDelete = async function() {
     const targetType = document.getElementById("deleteTargetType").value;
@@ -720,7 +783,7 @@ window.confirmDelete = async function() {
     } catch (err) {
         alert("Error deleting item: " + err.message);
     }
-};
+}
 
 function initSakuraPetals() {
     const canvas = document.getElementById('sakuraCanvas');
@@ -770,6 +833,4 @@ function initSakuraPetals() {
 window.addEventListener('DOMContentLoaded', async () => {
     await initDB();
     initSakuraPetals();
-    renderManagedCovers();
 });
-
