@@ -1,347 +1,292 @@
 <!DOCTYPE html>
-<html lang="my" class="dark h-full">
+<html lang="my">
 <head>
     <meta charset="UTF-8">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://www.gstatic.com https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; font-src 'self' data: https://fonts.gstatic.com https://cdnjs.cloudflare.com; img-src 'self' https: data: blob:; connect-src 'self' https: wss://*.firebasedatabase.app; frame-src 'self' https://*.firebaseapp.com; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://www.gstatic.com https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; font-src 'self' data: https://fonts.gstatic.com https://cdnjs.cloudflare.com; img-src 'self' https: data: blob:; connect-src 'self' https: wss://*.firebasedatabase.app; frame-src 'self' https://*.firebaseapp.com; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests">
     <meta name="referrer" content="no-referrer">
     <meta name="robots" content="noindex, nofollow">
     <script>if (window.top !== window.self) { try { window.top.location = window.self.location; } catch (e) { document.documentElement.style.display = "none"; } }</script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Sakura Uploader - Cloudinary & Firebase Sync</title>
-    
-    <!-- Tailwind CSS CDN -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="style.css">
-    
-    <!-- FontAwesome Icons CDN -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    
-    <!-- JSZip CDN for ZIP File Upload Support -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <meta name="theme-color" content="#031416">
+    <title>Sakura Uploader</title>
 
-    <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800;900&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <script>
-        tailwind.config = {
-            darkMode: 'class',
-            theme: {
-                extend: {
-                    colors: {
-                        dark: {
-                            base: '#08090f',
-                            surface: '#0d0f1a',
-                            card: '#141726',
-                            border: 'rgba(255, 255, 255, 0.1)'
-                        },
-                        sakura: {
-                            50: '#fff0f5',
-                            100: '#ffe4ed',
-                            300: '#ff8dae',
-                            400: '#ff5c8a',
-                            500: '#ff3b75',
-                            600: '#e61d5b',
-                            900: '#3d081b'
-                        }
-                    },
-                    fontFamily: {
-                        sans: ['Plus Jakarta Sans', 'sans-serif'],
-                        serif: ['Cinzel', 'serif']
-                    },
-                    boxShadow: {
-                        'sakura-glow': '0 0 20px rgba(255, 59, 117, 0.35)',
-                    }
-                }
-            }
-        }
-    </script>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Noto+Sans+Myanmar:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 </head>
-<body class="flex flex-col min-h-screen relative overflow-x-hidden w-full m-0 p-4 items-center justify-start">
+<body>
     <canvas id="sakuraCanvas"></canvas>
 
-    <!-- LOGIN MODAL / OVERLAY (Blocks panel until authenticated) -->
-    <div id="loginModal" class="hidden fixed inset-0 bg-black/90 backdrop-blur-xl z-50 flex items-center justify-center p-4">
-        <div class="glass-card rounded-2xl p-6 w-full max-w-sm space-y-5 border border-sakura-500/40 shadow-2xl">
-            <div class="text-center space-y-1 border-b border-dark-border pb-3">
-                <h2 class="text-base font-bold font-serif text-sakura-glow flex items-center justify-center gap-2">
-                    <i class="fa-solid fa-lock text-sakura-500"></i> Uploader Authentication
-                </h2>
-                <p class="text-[11px] text-slate-400">Please login to access Sakura Uploader panel desu~</p>
+    <!-- Startup splash: shown until Firebase tells us whether you're already signed in (prevents login flash) -->
+    <div id="authSplash" class="auth splash"><i class="fa-solid fa-spinner fa-spin"></i></div>
+
+    <!-- LOGIN -->
+    <div id="loginModal" class="auth hidden">
+        <div class="auth-inner">
+            <div class="auth-brand">
+                <div class="brand-mark"><i class="fa-solid fa-cloud-arrow-up"></i></div>
+                <div>
+                    <h2>Sakura Uploader</h2>
+                    <p>Sign in to manage your manga library.</p>
+                </div>
             </div>
-            <form id="loginForm" onsubmit="handleLogin(event)" class="space-y-4">
-                <div class="space-y-1">
-                    <label class="text-xs font-bold text-slate-300">Email Address</label>
-                    <input type="email" id="loginEmail" required placeholder="uploader@sakurarealm.com" class="w-full px-3.5 py-2.5 rounded-xl bg-dark-base border border-dark-border text-white text-xs focus:outline-none focus:border-sakura-500 transition">
+
+            <form id="loginForm" onsubmit="handleLogin(event)" class="form" style="gap:22px" autocomplete="on">
+                <div class="field">
+                    <label class="label" for="loginEmail">Email</label>
+                    <input type="email" id="loginEmail" class="input" required placeholder="uploader@sakurarealm.com" autocomplete="username">
                 </div>
-                <div class="space-y-1">
-                    <label class="text-xs font-bold text-slate-300">Password</label>
-                    <input type="password" id="loginPassword" required placeholder="••••••••" class="w-full px-3.5 py-2.5 rounded-xl bg-dark-base border border-dark-border text-white text-xs focus:outline-none focus:border-sakura-500 transition">
+                <div class="field">
+                    <label class="label" for="loginPassword">Password</label>
+                    <div class="pw">
+                        <input type="password" id="loginPassword" class="input" required placeholder="••••••••" autocomplete="current-password">
+                        <button type="button" id="togglePwBtn" onclick="togglePasswordVisibility()" aria-label="Show password"><i class="fa-solid fa-eye"></i></button>
+                    </div>
                 </div>
-                <div class="flex items-center justify-between text-xs">
-                    <label class="flex items-center gap-2 text-slate-300 cursor-pointer select-none">
-                        <input type="checkbox" id="rememberMeCheckbox" class="accent-sakura-500 w-4 h-4 rounded"> Remember Me
-                    </label>
-                </div>
-                <button type="submit" id="loginSubmitBtn" class="w-full py-3 rounded-xl bg-gradient-to-r from-sakura-600 to-sakura-500 text-white font-bold text-xs shadow-sakura-glow hover:opacity-90 transition active:scale-95 flex items-center justify-center gap-2">
-                    <i class="fa-solid fa-right-to-bracket"></i> Login to Uploader
+                <label class="remember">
+                    <input type="checkbox" id="rememberMeCheckbox">
+                    <span class="tick-box"><i class="fa-solid fa-check"></i></span>
+                    Remember me
+                </label>
+                <div id="loginError" class="auth-error" role="alert"></div>
+                <button type="submit" id="loginSubmitBtn" class="btn btn-primary">
+                    <i class="fa-solid fa-right-to-bracket"></i> Sign in
                 </button>
             </form>
         </div>
     </div>
 
-    <div class="relative z-10 w-full max-w-lg glass-card rounded-2xl p-5 sm:p-6 space-y-5 shadow-2xl border border-dark-border my-6">
-        
-        <div class="text-center space-y-1 border-b border-dark-border pb-3 flex items-center justify-between">
-            <h1 class="text-lg font-bold font-serif text-sakura-glow flex items-center justify-center gap-2">
-                <i class="fa-solid fa-cloud-arrow-up text-sakura-500"></i> Sakura Uploader Panel
-            </h1>
-            <button type="button" id="logoutBtn" onclick="handleLogout()" class="hidden px-3 py-1.5 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white transition text-xs font-bold flex items-center gap-1.5">
+    <!-- APP -->
+    <main class="shell">
+        <header class="topbar">
+            <div class="brand">
+                <div class="brand-mark"><i class="fa-solid fa-cloud-arrow-up"></i></div>
+                <div>
+                    <h1>Sakura Uploader</h1>
+                    <p>Cloudinary &amp; Firebase</p>
+                </div>
+            </div>
+            <button type="button" id="logoutBtn" onclick="handleLogout()" class="logout hidden">
                 <i class="fa-solid fa-right-from-bracket"></i> Logout
             </button>
-        </div>
+        </header>
 
-        <div class="grid grid-cols-2 gap-2 p-1 bg-dark-base rounded-xl border border-dark-border">
-            <button type="button" onclick="switchTab('mangaTab')" id="btnMangaTab" class="py-2 rounded-lg text-xs font-bold text-white bg-sakura-600 shadow-md transition">Manga Cover</button>
-            <button type="button" onclick="switchTab('chapterTab')" id="btnChapterTab" class="py-2 rounded-lg text-xs font-bold text-slate-400 hover:text-white transition">Chapter Uploader</button>
-        </div>
+        <nav class="tabs">
+            <button type="button" onclick="switchTab('mangaTab')" id="btnMangaTab" class="tab active">Manga Cover</button>
+            <button type="button" onclick="switchTab('chapterTab')" id="btnChapterTab" class="tab">Chapter Uploader</button>
+        </nav>
 
-        <!-- 1. MANGA COVER UPLOAD FORM -->
-        <form id="mangaUploadForm" onsubmit="handleMangaUpload(event)" class="space-y-3.5">
-            <div class="space-y-1">
-                <label class="text-xs font-bold text-slate-300">Manga Title</label>
-                <input type="text" id="upTitle" required placeholder="Enter manga title..." class="w-full px-3.5 py-2.5 rounded-xl bg-dark-base border border-dark-border text-white text-xs focus:outline-none focus:border-sakura-500 transition">
+        <!-- 1. MANGA COVER -->
+        <form id="mangaUploadForm" onsubmit="handleMangaUpload(event)" class="form">
+            <div class="field">
+                <label class="label" for="upTitle">Title</label>
+                <input type="text" id="upTitle" class="input" required placeholder="Enter manga title">
             </div>
-            <div class="grid grid-cols-2 gap-3">
-                <div class="space-y-1 relative">
-                    <label class="text-xs font-bold text-slate-300 flex items-center gap-1.5">
-                        <i class="fa-solid fa-signal text-sakura-400 text-[10px]"></i> Status
-                    </label>
+
+            <div class="row-2">
+                <div class="field relative">
+                    <span class="label">Status</span>
                     <input type="hidden" id="upStatus" value="Ongoing">
-                    <div id="statusTrigger" onclick="toggleCustomDropdown('statusMenu')" class="premium-custom-select w-full px-3.5 py-2.5 rounded-xl text-xs font-bold flex items-center justify-between cursor-pointer select-none">
-                        <span id="statusSelectedText" class="text-sakura-300">Ongoing</span>
-                        <i class="fa-solid fa-chevron-down text-sakura-400 text-xs"></i>
+                    <div id="statusTrigger" onclick="toggleCustomDropdown('statusMenu')" class="select-trigger">
+                        <span id="statusSelectedText" class="t-ongoing">Ongoing</span>
+                        <i class="fa-solid fa-chevron-down"></i>
                     </div>
-                    <div id="statusMenu" class="hidden absolute top-full left-0 right-0 mt-1 z-30 bg-dark-card/95 backdrop-blur-xl border border-sakura-500/40 rounded-xl shadow-2xl p-1 space-y-1 overflow-hidden">
-                        <div onclick="selectCustomOption('upStatus', 'statusSelectedText', 'Ongoing', 'statusMenu')" class="custom-option-item px-3 py-2 rounded-lg text-xs font-bold text-sakura-300 hover:bg-sakura-500/20 cursor-pointer transition">Ongoing</div>
-                        <div onclick="selectCustomOption('upStatus', 'statusSelectedText', 'Complete', 'statusMenu')" class="custom-option-item px-3 py-2 rounded-lg text-xs font-bold text-emerald-400 hover:bg-sakura-500/20 cursor-pointer transition">Complete</div>
-                        <div onclick="selectCustomOption('upStatus', 'statusSelectedText', 'Pause', 'statusMenu')" class="custom-option-item px-3 py-2 rounded-lg text-xs font-bold text-amber-400 hover:bg-sakura-500/20 cursor-pointer transition">Pause</div>
+                    <div id="statusMenu" class="menu hidden">
+                        <div class="opt t-ongoing" onclick="selectCustomOption('upStatus', 'statusSelectedText', 'Ongoing', 'statusMenu')">Ongoing</div>
+                        <div class="opt t-complete" onclick="selectCustomOption('upStatus', 'statusSelectedText', 'Complete', 'statusMenu')">Complete</div>
+                        <div class="opt t-pause" onclick="selectCustomOption('upStatus', 'statusSelectedText', 'Pause', 'statusMenu')">Pause</div>
                     </div>
                 </div>
-                <div class="space-y-1 relative">
-                    <label class="text-xs font-bold text-slate-300 flex items-center gap-1.5">
-                        <i class="fa-solid fa-book-bookmark text-sakura-400 text-[10px]"></i> Cover Type
-                    </label>
+                <div class="field relative">
+                    <span class="label">Type</span>
                     <input type="hidden" id="upCoverType" value="Manga">
-                    <div id="coverTypeTrigger" onclick="toggleCustomDropdown('coverTypeMenu')" class="premium-custom-select w-full px-3.5 py-2.5 rounded-xl text-xs font-bold flex items-center justify-between cursor-pointer select-none">
-                        <span id="coverTypeSelectedText" class="text-sakura-300">Manga</span>
-                        <i class="fa-solid fa-chevron-down text-sakura-400 text-xs"></i>
+                    <div id="coverTypeTrigger" onclick="toggleCustomDropdown('coverTypeMenu')" class="select-trigger">
+                        <span id="coverTypeSelectedText" class="t-ongoing">Manga</span>
+                        <i class="fa-solid fa-chevron-down"></i>
                     </div>
-                    <div id="coverTypeMenu" class="hidden absolute top-full left-0 right-0 mt-1 z-30 bg-dark-card/95 backdrop-blur-xl border border-sakura-500/40 rounded-xl shadow-2xl p-1 space-y-1 overflow-hidden">
-                        <div onclick="selectCustomOption('upCoverType', 'coverTypeSelectedText', 'Manga', 'coverTypeMenu')" class="custom-option-item px-3 py-2 rounded-lg text-xs font-bold text-sakura-300 hover:bg-sakura-500/20 cursor-pointer transition">Manga</div>
-                        <div onclick="selectCustomOption('upCoverType', 'coverTypeSelectedText', 'Manhwa', 'coverTypeMenu')" class="custom-option-item px-3 py-2 rounded-lg text-xs font-bold text-sakura-300 hover:bg-sakura-500/20 cursor-pointer transition">Manhwa</div>
+                    <div id="coverTypeMenu" class="menu hidden">
+                        <div class="opt t-ongoing" onclick="selectCustomOption('upCoverType', 'coverTypeSelectedText', 'Manga', 'coverTypeMenu')">Manga</div>
+                        <div class="opt t-ongoing" onclick="selectCustomOption('upCoverType', 'coverTypeSelectedText', 'Manhwa', 'coverTypeMenu')">Manhwa</div>
                     </div>
                 </div>
             </div>
-            <div class="space-y-1">
-                <label class="text-xs font-bold text-slate-300">Rating</label>
-                <input type="text" id="upRating" required value="4.9 / 5.0" placeholder="4.9 / 5.0" class="w-full px-3.5 py-2.5 rounded-xl bg-dark-base border border-dark-border text-white text-xs focus:outline-none focus:border-sakura-500 transition">
+
+            <div class="field">
+                <label class="label" for="upRating">Rating</label>
+                <input type="text" id="upRating" class="input" required value="4.9 / 5.0" placeholder="4.9 / 5.0">
             </div>
-            <div class="space-y-1.5">
-                <div class="flex items-center justify-between">
-                    <label class="text-xs font-bold text-slate-300">Genres Type</label>
-                    <button type="button" onclick="toggleGenresShowMore()" id="genresToggleBtn" class="text-[10px] text-sakura-400 hover:text-sakura-300 font-semibold focus:outline-none flex items-center gap-1">
-                        <span id="genresToggleText">Show More</span> <i id="genresToggleIcon" class="fa-solid fa-chevron-down text-[8px]"></i>
+
+            <div class="field" style="gap:12px">
+                <div class="label">
+                    <span>Genres</span>
+                    <button type="button" onclick="toggleGenresShowMore()" id="genresToggleBtn" class="link-btn">
+                        <span id="genresToggleText">Show More</span> <i id="genresToggleIcon" class="fa-solid fa-chevron-down" style="font-size:9px;margin:0"></i>
                     </button>
                 </div>
-                <div id="genresInitialContainer" class="grid grid-cols-3 gap-2 p-3 rounded-xl bg-dark-base border border-dark-border">
-                    <label class="flex items-center gap-2 text-xs text-slate-300 cursor-pointer"><input type="checkbox" name="genreCheckbox" value="Action" class="accent-sakura-500"> Action</label>
-                    <label class="flex items-center gap-2 text-xs text-slate-300 cursor-pointer"><input type="checkbox" name="genreCheckbox" value="Fantasy" class="accent-sakura-500"> Fantasy</label>
-                    <label class="flex items-center gap-2 text-xs text-slate-300 cursor-pointer"><input type="checkbox" name="genreCheckbox" value="Romance" class="accent-sakura-500"> Romance</label>
-                    <label class="flex items-center gap-2 text-xs text-slate-300 cursor-pointer"><input type="checkbox" name="genreCheckbox" value="Adventure" class="accent-sakura-500"> Adventure</label>
-                    <label class="flex items-center gap-2 text-xs text-slate-300 cursor-pointer"><input type="checkbox" name="genreCheckbox" value="Drama" class="accent-sakura-500"> Drama</label>
-                    <label class="flex items-center gap-2 text-xs text-slate-300 cursor-pointer"><input type="checkbox" name="genreCheckbox" value="Comedy" class="accent-sakura-500"> Comedy</label>
+                <div id="genresInitialContainer" class="chips">
+                    <label class="chip"><input type="checkbox" name="genreCheckbox" value="Action"><span>Action</span></label>
+                    <label class="chip"><input type="checkbox" name="genreCheckbox" value="Fantasy"><span>Fantasy</span></label>
+                    <label class="chip"><input type="checkbox" name="genreCheckbox" value="Romance"><span>Romance</span></label>
+                    <label class="chip"><input type="checkbox" name="genreCheckbox" value="Adventure"><span>Adventure</span></label>
+                    <label class="chip"><input type="checkbox" name="genreCheckbox" value="Drama"><span>Drama</span></label>
+                    <label class="chip"><input type="checkbox" name="genreCheckbox" value="Comedy"><span>Comedy</span></label>
                 </div>
-                <div id="genresExtendedContainer" class="hidden grid grid-cols-3 gap-2 p-3 rounded-xl bg-dark-base border border-dark-border mt-2">
-                    <label class="flex items-center gap-2 text-xs text-slate-300 cursor-pointer"><input type="checkbox" name="genreCheckbox" value="Sci-Fi" class="accent-sakura-500"> Sci-Fi</label>
-                    <label class="flex items-center gap-2 text-xs text-slate-300 cursor-pointer"><input type="checkbox" name="genreCheckbox" value="Horror" class="accent-sakura-500"> Horror</label>
-                    <label class="flex items-center gap-2 text-xs text-slate-300 cursor-pointer"><input type="checkbox" name="genreCheckbox" value="Shonen" class="accent-sakura-500"> Shonen</label>
-                    <label class="flex items-center gap-2 text-xs text-slate-300 cursor-pointer"><input type="checkbox" name="genreCheckbox" value="Isekai" class="accent-sakura-500"> Isekai</label>
-                    <label class="flex items-center gap-2 text-xs text-slate-300 cursor-pointer"><input type="checkbox" name="genreCheckbox" value="Slice of Life" class="accent-sakura-500"> Slice of Life</label>
-                    <label class="flex items-center gap-2 text-xs text-slate-300 cursor-pointer"><input type="checkbox" name="genreCheckbox" value="Supernatural" class="accent-sakura-500"> Supernatural</label>
-                </div>
-            </div>
-            <div class="space-y-1">
-                <label class="text-xs font-bold text-slate-300">Description</label>
-                <textarea id="upDescription" required rows="2" placeholder="Enter manga description..." class="w-full px-3.5 py-2 rounded-xl bg-dark-base border border-dark-border text-white text-xs focus:outline-none focus:border-sakura-500 transition resize-none"></textarea>
-            </div>
-            <div class="space-y-1.5">
-                <label class="text-xs font-bold text-slate-300">Cover Image</label>
-                <input type="file" id="upImageFile" accept="image/*" required onchange="previewCoverImage(event)" class="w-full px-3 py-2 rounded-xl bg-dark-base border border-dark-border text-slate-300 text-xs file:mr-3 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-sakura-600 file:text-white hover:file:bg-sakura-500 transition cursor-pointer">
-                <div id="imagePreviewContainer" class="hidden w-20 h-28 rounded-xl border border-dark-border overflow-hidden relative shadow-md mt-2 mx-auto">
-                    <img id="imagePreview" src="" alt="Preview" class="w-full h-full object-cover">
+                <div id="genresExtendedContainer" class="chips hidden">
+                    <label class="chip"><input type="checkbox" name="genreCheckbox" value="Sci-Fi"><span>Sci-Fi</span></label>
+                    <label class="chip"><input type="checkbox" name="genreCheckbox" value="Horror"><span>Horror</span></label>
+                    <label class="chip"><input type="checkbox" name="genreCheckbox" value="Shonen"><span>Shonen</span></label>
+                    <label class="chip"><input type="checkbox" name="genreCheckbox" value="Isekai"><span>Isekai</span></label>
+                    <label class="chip"><input type="checkbox" name="genreCheckbox" value="Slice of Life"><span>Slice of Life</span></label>
+                    <label class="chip"><input type="checkbox" name="genreCheckbox" value="Supernatural"><span>Supernatural</span></label>
                 </div>
             </div>
-            <button type="submit" id="mangaSubmitBtn" class="w-full py-3 rounded-xl bg-gradient-to-r from-sakura-600 to-sakura-500 text-white font-bold text-xs shadow-sakura-glow hover:opacity-90 transition active:scale-95 flex items-center justify-center gap-2 mt-1">
-                <i class="fa-solid fa-upload"></i> Upload Manga Cover to Cloudinary
+
+            <div class="field">
+                <label class="label" for="upDescription">Description</label>
+                <textarea id="upDescription" class="textarea" required rows="2" placeholder="Enter manga description"></textarea>
+            </div>
+
+            <div class="field">
+                <label class="label" for="upImageFile">Cover image</label>
+                <input type="file" id="upImageFile" class="file" accept="image/*" required onchange="previewCoverImage(event)">
+                <div id="imagePreviewContainer" class="cover-preview hidden">
+                    <img id="imagePreview" src="" alt="Preview">
+                </div>
+            </div>
+
+            <button type="submit" id="mangaSubmitBtn" class="btn btn-primary">
+                <i class="fa-solid fa-upload"></i> Upload Manga Cover
             </button>
         </form>
 
-        <!-- 2. CHAPTER UPLOADER FORM -->
-        <form id="chapterUploadForm" onsubmit="handleChapterUpload(event)" class="hidden space-y-3.5">
-            <div class="space-y-1">
-                <label class="text-xs font-bold text-slate-300 flex items-center gap-1.5">
-                    <i class="fa-solid fa-book text-sakura-400"></i> Select Manga
-                </label>
-                <select id="chapterMangaSelect" required class="w-full px-3.5 py-2.5 rounded-xl bg-dark-base border border-dark-border text-white text-xs focus:outline-none focus:border-sakura-500 transition">
-                    <option value="" disabled selected>-- Select target manga --</option>
+        <!-- 2. CHAPTER UPLOADER -->
+        <form id="chapterUploadForm" onsubmit="handleChapterUpload(event)" class="form hidden">
+            <div class="field">
+                <label class="label" for="chapterMangaSelect"><span><i class="fa-solid fa-book"></i>Manga</span></label>
+                <select id="chapterMangaSelect" required class="input" style="background:var(--bg)">
+                    <option value="" disabled selected>Select target manga</option>
                 </select>
             </div>
-            <div class="space-y-1">
-                <label class="text-xs font-bold text-slate-300 flex items-center gap-1.5">
-                    <i class="fa-solid fa-bookmark text-sakura-400"></i> Chapter Name / Number
-                </label>
-                <input type="text" id="chapterTitleInput" required placeholder="e.g. Chapter 1 or Vol. 1 Ch. 1" class="w-full px-3.5 py-2.5 rounded-xl bg-dark-base border border-dark-border text-white text-xs focus:outline-none focus:border-sakura-500 transition">
+            <div class="field">
+                <label class="label" for="chapterTitleInput"><span><i class="fa-solid fa-bookmark"></i>Chapter name / number</span></label>
+                <input type="text" id="chapterTitleInput" class="input" required placeholder="e.g. Chapter 1 or Vol. 1 Ch. 1">
             </div>
-            
-            <!-- TELEGRAM-STYLE GALLERY TRIGGER BUTTON -->
-            <div class="space-y-2">
-                <label class="text-xs font-bold text-slate-300 flex items-center gap-1.5">
-                    <i class="fa-solid fa-images text-sakura-400"></i> Chapter Images (Cloudinary & Firebase Sync)
-                </label>
-                
-                <div onclick="startGalleryPickerProcess()" class="w-full py-4 border-2 border-dashed border-sakura-500/40 rounded-xl bg-sakura-900/10 hover:bg-sakura-900/20 text-center cursor-pointer transition flex flex-col items-center justify-center gap-1.5">
-                    <i class="fa-solid fa-photo-film text-sakura-400 text-lg"></i>
-                    <span id="galleryTriggerText" class="text-xs font-bold text-sakura-300">Open Telegram-Style Gallery</span>
-                    <span class="text-[10px] text-slate-400">Supports Multi-select & Cloudinary Auto-Upload Queue desu~</span>
+
+            <div class="field" style="gap:14px">
+                <span class="label"><span><i class="fa-solid fa-images"></i>Chapter images</span></span>
+                <div onclick="startGalleryPickerProcess()" class="drop">
+                    <i class="fa-solid fa-photo-film"></i>
+                    <b id="galleryTriggerText">Open Gallery</b>
+                    <small>Select multiple photos or a ZIP. Uploads in order.</small>
                 </div>
-                
-                <!-- Hidden Inputs -->
+
                 <input type="file" id="realGalleryFileInput" accept="image/*" multiple onchange="loadDevicePhotosToGallery(event)" class="hidden">
                 <input type="file" id="realZipFileInput" accept=".zip" onchange="loadZipFileToGallery(event)" class="hidden">
-                
-                <!-- LIVE PROGRESS NOTIFICATION BAR -->
-                <div id="zipProgressWrapper" class="hidden space-y-1.5 p-3 rounded-xl bg-dark-base border border-sakura-500/40 shadow-lg">
-                    <div class="flex items-center justify-between text-xs font-bold">
-                        <span id="zipProgressText" class="text-sakura-300 flex items-center gap-1.5">
-                            <i class="fa-solid fa-spinner fa-spin text-sakura-400"></i> Processing (0/0)...
-                        </span>
-                        <span id="zipProgressPercent" class="text-sakura-400">0%</span>
+
+                <div id="zipProgressWrapper" class="progress hidden">
+                    <div class="progress-head">
+                        <span id="zipProgressText"><i class="fa-solid fa-spinner fa-spin"></i> Processing (0/0)...</span>
+                        <span id="zipProgressPercent">0%</span>
                     </div>
-                    <div class="w-full h-2 bg-dark-card rounded-full overflow-hidden border border-dark-border">
-                        <div id="zipProgressBar" class="h-full bg-gradient-to-r from-sakura-600 to-sakura-400 transition-all duration-300" style="width: 0%"></div>
-                    </div>
+                    <div class="bar"><div id="zipProgressBar" style="width:0%"></div></div>
                 </div>
 
-                <!-- Selected Thumbnails Preview Wrapper -->
-                <div id="sakuraSelectedPreviewWrapper" class="hidden space-y-2 p-3 rounded-xl bg-dark-base border border-dark-border">
-                    <div class="flex items-center justify-between">
-                        <span id="sakuraSelectedCountBadge" class="text-[10px] font-bold text-sakura-300 bg-sakura-900/50 px-2 py-0.5 rounded-md border border-sakura-500/30">0 selected</span>
-                        <button type="button" onclick="clearSakuraSelection()" class="text-[10px] text-red-400 hover:text-red-300 font-semibold"><i class="fa-solid fa-trash-can mr-1"></i> Clear All</button>
+                <div id="sakuraSelectedPreviewWrapper" class="selected hidden">
+                    <div class="selected-head">
+                        <span id="sakuraSelectedCountBadge">0 selected</span>
+                        <button type="button" onclick="clearSakuraSelection()" class="danger-link"><i class="fa-solid fa-trash-can"></i> Clear all</button>
                     </div>
-                    <div id="sakuraSelectedGridContainer" class="grid grid-cols-4 gap-2 max-h-40 overflow-y-auto pr-1"></div>
+                    <div id="sakuraSelectedGridContainer" class="thumbs"></div>
                 </div>
             </div>
 
-            <button type="submit" id="chapterSubmitBtn" class="w-full py-3 rounded-xl bg-gradient-to-r from-sakura-600 to-sakura-500 text-white font-bold text-xs shadow-sakura-glow hover:opacity-90 transition active:scale-95 flex items-center justify-center gap-2 mt-1">
-                <i class="fa-solid fa-cloud-arrow-up"></i> Upload Chapter to Cloudinary & Firebase
+            <button type="submit" id="chapterSubmitBtn" class="btn btn-primary">
+                <i class="fa-solid fa-cloud-arrow-up"></i> Upload Chapter
             </button>
         </form>
 
-        <div id="successMsg" class="hidden text-center text-xs text-sakura-300 font-semibold bg-sakura-900/40 p-2 rounded-xl border border-sakura-500/30">
-            Successfully Uploaded to Cloudinary & Synced!
-        </div>
-    </div>
+        <div id="successMsg" class="toast hidden">Uploaded and synced successfully.</div>
 
-    <!-- GALLERY PICKER MODAL -->
-    <div id="sakuraGalleryModal" class="hidden fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-3 sm:p-4">
-        <div class="glass-card rounded-2xl p-4 sm:p-5 w-full max-w-md space-y-4 border border-sakura-500/40 shadow-2xl flex flex-col max-h-[85vh]">
-            <div class="flex items-center justify-between border-b border-dark-border pb-3 shrink-0">
-                <div class="flex items-center gap-2">
-                    <i class="fa-solid fa-images text-sakura-400 text-base"></i>
-                    <h3 class="text-sm font-bold font-serif text-sakura-glow">Telegram Gallery Picker</h3>
-                </div>
-                <button type="button" onclick="closeSakuraGalleryModal()" class="w-7 h-7 rounded-lg bg-dark-base text-slate-300 hover:bg-sakura-500 hover:text-white transition flex items-center justify-center text-xs">
-                    <i class="fa-solid fa-xmark"></i>
-                </button>
+        <!-- LIBRARY -->
+        <section class="library">
+            <div class="section-head">
+                <h2>Library</h2>
+                <span id="totalUploadsCount">0 Items</span>
             </div>
-            <div class="grid grid-cols-2 gap-2 shrink-0">
-                <button type="button" onclick="triggerDevicePhotoPicker()" class="py-2 px-3 rounded-xl bg-sakura-600 text-white font-bold text-[10px] hover:bg-sakura-500 transition shadow flex items-center justify-center gap-1">
-                    <i class="fa-solid fa-plus"></i> Add Photos
-                </button>
-                <button type="button" onclick="triggerZipFilePicker()" class="py-2 px-3 rounded-xl bg-purple-600 text-white font-bold text-[10px] hover:bg-purple-500 transition shadow flex items-center justify-center gap-1">
-                    <i class="fa-solid fa-file-zipper"></i> Upload ZIP
-                </button>
+            <div id="managedCoversList"></div>
+        </section>
+    </main>
+
+    <!-- GALLERY PICKER -->
+    <div id="sakuraGalleryModal" class="overlay hidden">
+        <div class="sheet">
+            <div class="sheet-head">
+                <h3>Select photos</h3>
+                <button type="button" onclick="closeSakuraGalleryModal()" class="icon-btn" aria-label="Close"><i class="fa-solid fa-xmark"></i></button>
             </div>
-            <div class="flex-1 overflow-y-auto pr-1">
-                <div id="sakuraGalleryGrid" class="grid grid-cols-3 gap-2.5 pb-2"></div>
+            <div class="gallery-tools">
+                <button type="button" onclick="triggerDevicePhotoPicker()" class="btn btn-soft"><i class="fa-solid fa-plus"></i> Add photos</button>
+                <button type="button" onclick="triggerZipFilePicker()" class="btn btn-soft"><i class="fa-solid fa-file-zipper"></i> Upload ZIP</button>
             </div>
-            <div class="flex items-center justify-between pt-2 border-t border-dark-border shrink-0">
-                <span id="modalSelectedCount" class="text-xs font-bold text-sakura-300">0 selected</span>
-                <div class="flex items-center gap-2">
-                    <button type="button" onclick="closeSakuraGalleryModal()" class="px-4 py-2 rounded-xl bg-dark-base border border-dark-border text-slate-300 text-xs font-bold hover:bg-slate-800 transition">Cancel</button>
-                    <button type="button" onclick="confirmSakuraGallerySelection()" class="px-5 py-2 rounded-xl bg-gradient-to-r from-sakura-600 to-sakura-500 text-white text-xs font-bold hover:opacity-90 transition shadow-sakura-glow">Select & Add</button>
+            <div class="gallery-body">
+                <div id="sakuraGalleryGrid" class="gallery-grid"></div>
+            </div>
+            <div class="gallery-foot">
+                <b id="modalSelectedCount">0 selected</b>
+                <div class="sheet-actions">
+                    <button type="button" onclick="closeSakuraGalleryModal()" class="btn btn-text">Cancel</button>
+                    <button type="button" onclick="confirmSakuraGallerySelection()" class="btn btn-soft" style="background:var(--teal);color:var(--on-teal)">Select &amp; add</button>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- MANAGED COVERS SECTION -->
-    <div class="relative z-10 w-full max-w-lg glass-card rounded-2xl p-4 sm:p-5 space-y-3 shadow-2xl border border-dark-border mb-8">
-        <div class="flex items-center justify-between border-b border-dark-border pb-2.5">
-            <h2 class="text-xs sm:text-sm font-bold font-serif text-slate-100">Upload Manage (Cloudinary & Firebase)</h2>
-            <span id="totalUploadsCount" class="text-[10px] bg-sakura-900/60 text-sakura-300 px-2 py-0.5 rounded-full font-bold border border-sakura-500/30">0 Items</span>
-        </div>
-        
-        <div id="managedCoversList" class="space-y-3 max-h-80 overflow-y-auto pr-1"></div>
-    </div>
-
-    <!-- EDIT STATUS MODAL -->
-    <div id="editStatusModal" class="hidden fixed inset-0 bg-black/70 backdrop-blur-md z-50 flex items-center justify-center p-4">
-        <div class="glass-card rounded-2xl p-5 w-full max-w-xs space-y-4 border border-sakura-500/30 shadow-2xl">
-            <h3 class="text-sm font-bold font-serif text-sakura-glow text-center">Edit Manga Status</h3>
+    <!-- EDIT STATUS -->
+    <div id="editStatusModal" class="overlay hidden">
+        <div class="sheet narrow">
+            <h3>Edit status</h3>
             <input type="hidden" id="editMangaId">
-            <div class="space-y-1 relative">
-                <label class="text-xs font-bold text-slate-300">Select Status</label>
+            <div class="field relative">
+                <span class="label">Status</span>
                 <input type="hidden" id="modalStatusValue" value="Ongoing">
-                <div onclick="toggleCustomDropdown('modalStatusMenu')" class="premium-custom-select w-full px-3.5 py-2.5 rounded-xl text-xs font-bold flex items-center justify-between cursor-pointer select-none">
-                    <span id="modalStatusText" class="text-sakura-300">Ongoing</span>
-                    <i class="fa-solid fa-chevron-down text-sakura-400 text-xs"></i>
+                <div onclick="toggleCustomDropdown('modalStatusMenu')" class="select-trigger">
+                    <span id="modalStatusText" class="t-ongoing">Ongoing</span>
+                    <i class="fa-solid fa-chevron-down"></i>
                 </div>
-                <div id="modalStatusMenu" class="hidden absolute top-full left-0 right-0 mt-1 z-30 bg-dark-card/95 backdrop-blur-xl border border-sakura-500/40 rounded-xl shadow-2xl p-1 space-y-1">
-                    <div onclick="selectCustomOption('modalStatusValue', 'modalStatusText', 'Ongoing', 'modalStatusMenu')" class="custom-option-item px-3 py-2 rounded-lg text-xs font-bold text-sakura-300 hover:bg-sakura-500/20 cursor-pointer transition">Ongoing</div>
-                    <div onclick="selectCustomOption('modalStatusValue', 'modalStatusText', 'Complete', 'modalStatusMenu')" class="custom-option-item px-3 py-2 rounded-lg text-xs font-bold text-emerald-400 hover:bg-sakura-500/20 cursor-pointer transition">Complete</div>
-                    <div onclick="selectCustomOption('modalStatusValue', 'modalStatusText', 'Pause', 'modalStatusMenu')" class="custom-option-item px-3 py-2 rounded-lg text-xs font-bold text-amber-400 hover:bg-sakura-500/20 cursor-pointer transition">Pause</div>
+                <div id="modalStatusMenu" class="menu hidden">
+                    <div class="opt t-ongoing" onclick="selectCustomOption('modalStatusValue', 'modalStatusText', 'Ongoing', 'modalStatusMenu')">Ongoing</div>
+                    <div class="opt t-complete" onclick="selectCustomOption('modalStatusValue', 'modalStatusText', 'Complete', 'modalStatusMenu')">Complete</div>
+                    <div class="opt t-pause" onclick="selectCustomOption('modalStatusValue', 'modalStatusText', 'Pause', 'modalStatusMenu')">Pause</div>
                 </div>
             </div>
-            <div class="flex items-center gap-2 pt-2">
-                <button type="button" onclick="closeEditModal()" class="w-1/2 py-2 rounded-xl bg-dark-base border border-dark-border text-slate-300 text-xs font-bold hover:bg-slate-800 transition">Cancel</button>
-                <button type="button" onclick="saveMangaStatus()" class="w-1/2 py-2 rounded-xl bg-sakura-600 text-white text-xs font-bold hover:bg-sakura-500 transition">Save</button>
+            <div class="sheet-actions" style="margin-top:56px">
+                <button type="button" onclick="closeEditModal()" class="btn btn-text">Cancel</button>
+                <button type="button" onclick="saveMangaStatus()" class="btn btn-soft" style="background:var(--teal);color:var(--on-teal)">Save</button>
             </div>
         </div>
     </div>
 
-    <!-- DELETE CONFIRMATION MODAL -->
-    <div id="deleteConfirmModal" class="hidden fixed inset-0 bg-black/75 backdrop-blur-md z-50 flex items-center justify-center p-4">
-        <div class="glass-card rounded-2xl p-5 w-full max-w-xs space-y-4 border border-red-500/30 shadow-2xl text-center">
-            <div class="w-12 h-12 rounded-full bg-red-500/10 border border-red-500/30 text-red-400 flex items-center justify-center mx-auto text-lg">
-                <i class="fa-solid fa-triangle-exclamation"></i>
-            </div>
-            <div class="space-y-1">
-                <h3 class="text-sm font-bold font-serif text-white">Delete Confirmation</h3>
-                <p id="deleteModalDesc" class="text-[11px] text-slate-300 leading-relaxed">Are you sure you want to delete this item?</p>
+    <!-- DELETE CONFIRM -->
+    <div id="deleteConfirmModal" class="overlay hidden">
+        <div class="sheet narrow center">
+            <div class="warn-ico"><i class="fa-solid fa-triangle-exclamation"></i></div>
+            <div>
+                <h3>Delete?</h3>
+                <p id="deleteModalDesc" style="margin-top:6px">Are you sure you want to delete this item?</p>
             </div>
             <input type="hidden" id="deleteTargetType">
             <input type="hidden" id="deleteTargetParentId">
             <input type="hidden" id="deleteTargetId">
-            <div class="flex items-center gap-2 pt-1">
-                <button type="button" onclick="closeDeleteModal()" class="w-1/2 py-2.5 rounded-xl bg-dark-base border border-dark-border text-slate-300 text-xs font-bold hover:bg-slate-800 transition">Cancel</button>
-                <button type="button" onclick="confirmDelete()" class="w-1/2 py-2.5 rounded-xl bg-red-600 text-white text-xs font-bold hover:bg-red-500 transition shadow-lg shadow-red-600/30">Yes</button>
+            <div class="sheet-actions">
+                <button type="button" onclick="closeDeleteModal()" class="btn btn-text">Cancel</button>
+                <button type="button" onclick="confirmDelete()" class="btn btn-danger">Yes, delete</button>
             </div>
         </div>
     </div>
 
-    <!-- Main Logic Script with Firebase v13 ES Module -->
     <script type="module" src="script.js"></script>
 </body>
 </html>
