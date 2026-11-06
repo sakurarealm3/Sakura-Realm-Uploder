@@ -2,291 +2,491 @@
 <html lang="my">
 <head>
     <meta charset="UTF-8">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://www.gstatic.com https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; font-src 'self' data: https://fonts.gstatic.com https://cdnjs.cloudflare.com; img-src 'self' https: data: blob:; connect-src 'self' https: wss://*.firebasedatabase.app; frame-src 'self' https://*.firebaseapp.com; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests">
-    <meta name="referrer" content="no-referrer">
-    <meta name="robots" content="noindex, nofollow">
-    <script>if (window.top !== window.self) { try { window.top.location = window.self.location; } catch (e) { document.documentElement.style.display = "none"; } }</script>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <meta name="theme-color" content="#031416">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+    <meta name="theme-color" content="#071011">
     <title>Sakura Uploader</title>
 
+    <link rel="stylesheet" href="style.css">
+
+    <!-- JSZip (ZIP upload support) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+
+    <!-- Fonts (Myanmar fallback included so manga titles render properly) -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Noto+Sans+Myanmar:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="style.css">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Myanmar:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 </head>
 <body>
-    <canvas id="sakuraCanvas"></canvas>
+    <svg xmlns="http://www.w3.org/2000/svg" width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false"><defs><symbol id="i-image" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></symbol><symbol id="i-layers" viewBox="0 0 24 24"><path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/></symbol><symbol id="i-upload" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></symbol><symbol id="i-cloud-upload" viewBox="0 0 24 24"><path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"/><path d="M12 12v9"/><path d="m16 16-4-4-4 4"/></symbol><symbol id="i-log-out" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/></symbol><symbol id="i-log-in" viewBox="0 0 24 24"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" x2="3" y1="12" y2="12"/></symbol><symbol id="i-mail" viewBox="0 0 24 24"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></symbol><symbol id="i-lock" viewBox="0 0 24 24"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol><symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></symbol><symbol id="i-eye-off" viewBox="0 0 24 24"><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><line x1="2" x2="22" y1="2" y2="22"/></symbol><symbol id="i-check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></symbol><symbol id="i-chevron-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol><symbol id="i-chevron-up" viewBox="0 0 24 24"><path d="m18 15-6-6-6 6"/></symbol><symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol><symbol id="i-plus" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></symbol><symbol id="i-file-zip" viewBox="0 0 24 24"><path d="M4 22V4a2 2 0 0 1 2-2h8l6 6v12a2 2 0 0 1-2 2Z"/><path d="M14 2v6h6"/><path d="M10 12h2"/><path d="M10 15h2"/><path d="M10 18h2"/></symbol><symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol><symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></symbol><symbol id="i-pencil" viewBox="0 0 24 24"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></symbol><symbol id="i-folder-open" viewBox="0 0 24 24"><path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/></symbol><symbol id="i-images" viewBox="0 0 24 24"><path d="M18 22H4a2 2 0 0 1-2-2V6"/><path d="m22 13-1.296-1.296a2.41 2.41 0 0 0-3.408 0L11 18"/><circle cx="12" cy="8" r="2"/><rect width="16" height="16" x="6" y="2" rx="2"/></symbol><symbol id="i-alert-triangle" viewBox="0 0 24 24"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></symbol><symbol id="i-check-circle" viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="m9 11 3 3L22 4"/></symbol><symbol id="i-alert-circle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></symbol><symbol id="i-loader" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></symbol><symbol id="i-database" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5V19A9 3 0 0 0 21 19V5"/><path d="M3 12A9 3 0 0 0 21 12"/></symbol><symbol id="i-cloud" viewBox="0 0 24 24"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/></symbol><symbol id="i-book-open" viewBox="0 0 24 24"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></symbol><symbol id="i-star" viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></symbol><symbol id="i-activity" viewBox="0 0 24 24"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/></symbol><symbol id="i-align-left" viewBox="0 0 24 24"><path d="M21 6H3"/><path d="M15 12H3"/><path d="M17 18H3"/></symbol><symbol id="i-type" viewBox="0 0 24 24"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" x2="15" y1="20" y2="20"/><line x1="12" x2="12" y1="4" y2="20"/></symbol><symbol id="i-hash" viewBox="0 0 24 24"><line x1="4" x2="20" y1="9" y2="9"/><line x1="4" x2="20" y1="15" y2="15"/><line x1="10" x2="8" y1="3" y2="21"/><line x1="16" x2="14" y1="3" y2="21"/></symbol><symbol id="i-shield-check" viewBox="0 0 24 24"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></symbol><symbol id="i-tag" viewBox="0 0 24 24"><path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"/></symbol><symbol id="i-file-text" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></symbol><symbol id="i-circle-dot" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="1" fill="currentColor"/></symbol><symbol id="i-files" viewBox="0 0 24 24"><path d="M20 7h-3a2 2 0 0 1-2-2V2"/><path d="M9 18a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h7l4 4v10a2 2 0 0 1-2 2Z"/><path d="M3 7.6v12.8A1.6 1.6 0 0 0 4.6 22h9.8"/></symbol><symbol id="i-zap" viewBox="0 0 24 24"><path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/></symbol><linearGradient id="lgPetal" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ccfbf1"/><stop offset=".55" stop-color="#2dd4bf"/><stop offset="1" stop-color="#0d9488"/></linearGradient><radialGradient id="lgCore" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#fff3c4"/><stop offset="1" stop-color="#e8c77a"/></radialGradient><symbol id="lgP" viewBox="0 0 40 40"><path d="M20 20C14.2 15.6 12 8.6 15.4 3.2c1.5-.5 3.3.2 4.6 1.7 1.3-1.5 3.1-2.2 4.6-1.7C28 8.6 25.8 15.6 20 20Z"/></symbol><symbol id="logo" viewBox="0 0 40 40"><g fill="url(#lgPetal)"><use href="#lgP"/><use href="#lgP" transform="rotate(72 20 20)"/><use href="#lgP" transform="rotate(144 20 20)"/><use href="#lgP" transform="rotate(216 20 20)"/><use href="#lgP" transform="rotate(288 20 20)"/></g><circle cx="20" cy="20" r="3.4" fill="url(#lgCore)"/><circle cx="20" cy="20" r="3.4" fill="none" stroke="#fff" stroke-opacity=".55" stroke-width=".6"/></symbol><symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol><symbol id="i-sparkles" viewBox="0 0 24 24"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.582a.5.5 0 0 1 0 .962L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/><path d="M20 3v4"/><path d="M22 5h-4"/></symbol><symbol id="i-crown" viewBox="0 0 24 24"><path d="m2 4 3 12h14l3-12-6 7-4-7-4 7-6-7z"/><path d="M5 20h14"/></symbol></defs></svg>
+    <canvas id="sakuraCanvas" aria-hidden="true"></canvas>
 
-    <!-- Startup splash: shown until Firebase tells us whether you're already signed in (prevents login flash) -->
-    <div id="authSplash" class="auth splash"><i class="fa-solid fa-spinner fa-spin"></i></div>
+    <!-- ============ AUTH LOADING SPLASH ============ -->
+    <div id="authSplash" class="splash" aria-hidden="true"></div>
 
-    <!-- LOGIN -->
-    <div id="loginModal" class="auth hidden">
-        <div class="auth-inner">
-            <div class="auth-brand">
-                <div class="brand-mark"><i class="fa-solid fa-cloud-arrow-up"></i></div>
-                <div>
-                    <h2>Sakura Uploader</h2>
-                    <p>Sign in to manage your manga library.</p>
+    <!-- ============ LOGIN SCREEN ============ -->
+    <div id="loginModal" class="login hidden">
+        <aside class="login-brand">
+            <span class="orb orb-a"></span><span class="orb orb-b"></span>
+            <div class="brand brand-lg">
+                <span class="logo-box"><svg class="ic brand-icon" aria-hidden="true"><use href="#i-cloud-upload"/></svg></span>
+                <div class="brand-text">
+                    <span class="brand-name">Sakura Uploader</span>
+                    <span class="brand-sub">Premium Suite</span>
                 </div>
             </div>
 
-            <form id="loginForm" onsubmit="handleLogin(event)" class="form" style="gap:22px" autocomplete="on">
-                <div class="field">
-                    <label class="label" for="loginEmail">Email</label>
-                    <input type="email" id="loginEmail" class="input" required placeholder="uploader@sakurarealm.com" autocomplete="username">
-                </div>
-                <div class="field">
-                    <label class="label" for="loginPassword">Password</label>
-                    <div class="pw">
-                        <input type="password" id="loginPassword" class="input" required placeholder="••••••••" autocomplete="current-password">
-                        <button type="button" id="togglePwBtn" onclick="togglePasswordVisibility()" aria-label="Show password"><i class="fa-solid fa-eye"></i></button>
+            <div class="login-hero">
+                <span class="eyebrow"><svg class="ic" aria-hidden="true"><use href="#i-crown"/></svg> Secure admin access</span>
+                <h1>Your manga library,<br><span>beautifully managed.</span></h1>
+                <p>Upload covers and chapters, and manage your entire collection from one elegant workspace.</p>
+            </div>
+
+        </aside>
+
+        <main class="login-pane">
+            <div class="login-card">
+                <header class="login-head">
+                    <div class="lh-top">
+                        <span class="lh-tile"><svg class="ic lh-icon" aria-hidden="true"><use href="#i-cloud-upload"/></svg></span>
+                        <div class="lh-name"><strong>Sakura Uploader</strong><small>Admin panel</small></div>
                     </div>
-                </div>
-                <label class="remember">
-                    <input type="checkbox" id="rememberMeCheckbox">
-                    <span class="tick-box"><i class="fa-solid fa-check"></i></span>
-                    Remember me
-                </label>
-                <div id="loginError" class="auth-error" role="alert"></div>
-                <button type="submit" id="loginSubmitBtn" class="btn btn-primary">
-                    <i class="fa-solid fa-right-to-bracket"></i> Sign in
-                </button>
-            </form>
-        </div>
+                    <div class="lh-title">
+                        <h2>Welcome back</h2>
+                        <p>Sign in to manage your manga library.</p>
+                    </div>
+                </header>
+
+                <form id="loginForm" onsubmit="handleLogin(event)" novalidate>
+                    <div id="loginError" class="form-error hidden" role="alert">
+                        <svg class="ic" aria-hidden="true"><use href="#i-alert-circle"/></svg>
+                        <span id="loginErrorText"></span>
+                    </div>
+
+                    <div class="field">
+                        <label for="loginEmail">Email address</label>
+                        <div class="input-icon">
+                            <svg class="ic ic-lead" aria-hidden="true"><use href="#i-mail"/></svg>
+                            <input type="email" id="loginEmail" required autocomplete="username" inputmode="email" autocapitalize="off" spellcheck="false" placeholder="admin@example.com">
+                        </div>
+                    </div>
+
+                    <div class="field">
+                        <label for="loginPassword">Password</label>
+                        <div class="input-icon">
+                            <svg class="ic ic-lead" aria-hidden="true"><use href="#i-lock"/></svg>
+                            <input type="password" id="loginPassword" required autocomplete="current-password" placeholder="••••••••">
+                            <button type="button" id="togglePasswordBtn" class="input-action" onclick="togglePasswordVisibility()" aria-label="Show password">
+                                <svg class="ic" aria-hidden="true"><use href="#i-eye"/></svg>
+                            </button>
+                        </div>
+                    </div>
+
+                    <label class="check">
+                        <input type="checkbox" id="rememberMeCheckbox">
+                        <span class="check-box"><svg class="ic" aria-hidden="true"><use href="#i-check"/></svg></span>
+                        <span class="check-text"><strong>Remember me</strong></span>
+                    </label>
+
+                    <button type="submit" id="loginSubmitBtn" class="btn btn-primary btn-lg btn-block">
+                        <svg class="ic" aria-hidden="true"><use href="#i-log-in"/></svg> Sign in
+                    </button>
+                </form>
+
+                <p class="login-note"><svg class="ic" aria-hidden="true"><use href="#i-shield-check"/></svg> Encrypted &middot; Authorized admins only</p>
+            </div>
+
+        </main>
     </div>
 
-    <!-- APP -->
-    <main class="shell">
+    <!-- Show the login right away (no waiting) when this browser has no saved session -->
+    <script>
+        try {
+            var _rem = localStorage.getItem("sakura_remember_me") === "1";
+            var _ses = sessionStorage.getItem("sakura_session_active") === "1";
+            if (!_rem && !_ses) {
+                document.getElementById("authSplash").classList.add("hidden");
+                document.getElementById("loginModal").classList.remove("hidden");
+            }
+        } catch (e) {}
+    </script>
+
+<!-- ============ APP ============ -->
+    <div id="appShell" class="app hidden">
         <header class="topbar">
-            <div class="brand">
-                <div class="brand-mark"><i class="fa-solid fa-cloud-arrow-up"></i></div>
-                <div>
-                    <h1>Sakura Uploader</h1>
-                    <p>Cloudinary &amp; Firebase</p>
+            <div class="topbar-inner">
+                <div class="brand">
+                    <span class="logo-box"><svg class="brand-logo" viewBox="0 0 40 40" aria-hidden="true"><use href="#logo"/></svg></span>
+                    <div class="brand-text">
+                        <span class="brand-name">Sakura Uploader</span>
+                        <span class="brand-sub">Admin Panel</span>
+                    </div>
                 </div>
+                <button type="button" id="logoutBtn" onclick="handleLogout()" class="btn btn-outline btn-sm">
+                    <svg class="ic" aria-hidden="true"><use href="#i-log-out"/></svg> <span>Logout</span>
+                </button>
             </div>
-            <button type="button" id="logoutBtn" onclick="handleLogout()" class="logout hidden">
-                <i class="fa-solid fa-right-from-bracket"></i> Logout
-            </button>
         </header>
 
-        <nav class="tabs">
-            <button type="button" onclick="switchTab('mangaTab')" id="btnMangaTab" class="tab active">Manga Cover</button>
-            <button type="button" onclick="switchTab('chapterTab')" id="btnChapterTab" class="tab">Chapter Uploader</button>
-        </nav>
+        <main class="page">
+            <!-- Page header -->
+            <section class="page-head">
+                <div>
+                    <h1>Upload Center</h1>
+                    <p>Upload manga covers and chapters, and manage your library.</p>
+                </div>
+            </section>
 
-        <!-- 1. MANGA COVER -->
-        <form id="mangaUploadForm" onsubmit="handleMangaUpload(event)" class="form">
-            <div class="field">
-                <label class="label" for="upTitle">Title</label>
-                <input type="text" id="upTitle" class="input" required placeholder="Enter manga title">
-            </div>
+            <!-- Stats -->
+            <section class="stats">
+                <div class="stat">
+                    <span class="ibadge"><svg class="ic" aria-hidden="true"><use href="#i-book-open"/></svg></span>
+                    <div><strong id="statMangaCount">0</strong><small>Manga</small></div>
+                </div>
+                <div class="stat">
+                    <span class="ibadge"><svg class="ic" aria-hidden="true"><use href="#i-layers"/></svg></span>
+                    <div><strong id="statChapterCount">0</strong><small>Chapters</small></div>
+                </div>
+            </section>
 
-            <div class="row-2">
-                <div class="field relative">
-                    <span class="label">Status</span>
-                    <input type="hidden" id="upStatus" value="Ongoing">
-                    <div id="statusTrigger" onclick="toggleCustomDropdown('statusMenu')" class="select-trigger">
-                        <span id="statusSelectedText" class="t-ongoing">Ongoing</span>
-                        <i class="fa-solid fa-chevron-down"></i>
+            <div class="layout">
+                <!-- ============ UPLOAD CARD ============ -->
+                <section class="card">
+                    <div class="card-head">
+                        <span class="ibadge ibadge-lg"><svg class="ic" aria-hidden="true"><use href="#i-cloud-upload"/></svg></span>
+                        <div>
+                            <h2>New upload</h2>
+                            <p>Add a new cover or chapter</p>
+                        </div>
                     </div>
-                    <div id="statusMenu" class="menu hidden">
-                        <div class="opt t-ongoing" onclick="selectCustomOption('upStatus', 'statusSelectedText', 'Ongoing', 'statusMenu')">Ongoing</div>
-                        <div class="opt t-complete" onclick="selectCustomOption('upStatus', 'statusSelectedText', 'Complete', 'statusMenu')">Complete</div>
-                        <div class="opt t-pause" onclick="selectCustomOption('upStatus', 'statusSelectedText', 'Pause', 'statusMenu')">Pause</div>
+
+                    <div class="tabs" role="tablist">
+                        <button type="button" onclick="switchTab('mangaTab')" id="btnMangaTab" class="tab is-active" role="tab">
+                            <svg class="ic" aria-hidden="true"><use href="#i-image"/></svg> Manga Cover
+                        </button>
+                        <button type="button" onclick="switchTab('chapterTab')" id="btnChapterTab" class="tab" role="tab">
+                            <svg class="ic" aria-hidden="true"><use href="#i-layers"/></svg> Chapter Uploader
+                        </button>
                     </div>
-                </div>
-                <div class="field relative">
-                    <span class="label">Type</span>
-                    <input type="hidden" id="upCoverType" value="Manga">
-                    <div id="coverTypeTrigger" onclick="toggleCustomDropdown('coverTypeMenu')" class="select-trigger">
-                        <span id="coverTypeSelectedText" class="t-ongoing">Manga</span>
-                        <i class="fa-solid fa-chevron-down"></i>
+
+                    <!-- 1. MANGA COVER FORM -->
+                    <form id="mangaUploadForm" onsubmit="handleMangaUpload(event)" class="form">
+                        <div class="group">
+                            <h3 class="group-title"><svg class="ic" aria-hidden="true"><use href="#i-type"/></svg> Basic information</h3>
+                            <div class="field">
+                                <label for="upTitle">Manga Title</label>
+                                <input type="text" id="upTitle" required placeholder="Enter manga title">
+                            </div>
+                            <div class="field">
+                                <label for="upRating">Rating</label>
+                                <div class="input-icon">
+                                    <svg class="ic ic-lead" aria-hidden="true"><use href="#i-star"/></svg>
+                                    <input type="text" id="upRating" required value="4.9 / 5.0" placeholder="4.9 / 5.0">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="group">
+                            <h3 class="group-title"><svg class="ic" aria-hidden="true"><use href="#i-tag"/></svg> Classification</h3>
+                            <div class="row-2">
+                                <div class="field">
+                                    <label>Status</label>
+                                    <div class="select-wrap">
+                                        <input type="hidden" id="upStatus" value="Ongoing">
+                                        <button type="button" id="statusTrigger" onclick="toggleCustomDropdown('statusMenu')" class="select-trigger">
+                                            <span id="statusSelectedText" class="status-text" data-status="Ongoing">Ongoing</span>
+                                            <svg class="ic" aria-hidden="true"><use href="#i-chevron-down"/></svg>
+                                        </button>
+                                        <div id="statusMenu" class="select-menu hidden">
+                                            <div onclick="selectCustomOption('upStatus', 'statusSelectedText', 'Ongoing', 'statusMenu')" class="select-option status-text" data-status="Ongoing">Ongoing</div>
+                                            <div onclick="selectCustomOption('upStatus', 'statusSelectedText', 'Complete', 'statusMenu')" class="select-option status-text" data-status="Complete">Complete</div>
+                                            <div onclick="selectCustomOption('upStatus', 'statusSelectedText', 'Pause', 'statusMenu')" class="select-option status-text" data-status="Pause">Pause</div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="field">
+                                    <label>Type</label>
+                                    <div class="select-wrap">
+                                        <input type="hidden" id="upCoverType" value="Manga">
+                                        <button type="button" id="coverTypeTrigger" onclick="toggleCustomDropdown('coverTypeMenu')" class="select-trigger">
+                                            <span id="coverTypeSelectedText" class="status-text" data-status="Ongoing">Manga</span>
+                                            <svg class="ic" aria-hidden="true"><use href="#i-chevron-down"/></svg>
+                                        </button>
+                                        <div id="coverTypeMenu" class="select-menu hidden">
+                                            <div onclick="selectCustomOption('upCoverType', 'coverTypeSelectedText', 'Manga', 'coverTypeMenu')" class="select-option status-text" data-status="Ongoing">Manga</div>
+                                            <div onclick="selectCustomOption('upCoverType', 'coverTypeSelectedText', 'Manhwa', 'coverTypeMenu')" class="select-option status-text" data-status="Ongoing">Manhwa</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="field">
+                                <div class="field-head">
+                                    <label>Genres</label>
+                                    <span id="genreCount" class="badge badge-sm">0 selected</span>
+                                </div>
+                                <div class="genre-box">
+                                    <div class="genre-tools">
+                                        <div class="input-icon">
+                                            <svg class="ic ic-lead" aria-hidden="true"><use href="#i-search"/></svg>
+                                            <input type="text" id="genreSearch" placeholder="Search genres..." autocomplete="off" oninput="filterGenres()">
+                                        </div>
+                                        <button type="button" id="genreClearBtn" class="clear-btn" onclick="clearGenres()" disabled><svg class="ic" aria-hidden="true"><use href="#i-trash"/></svg><span>Clear</span><em id="genreClearNum">0</em></button>
+                                    </div>
+                                    <div id="genreScroll" class="genre-scroll"></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        
+<div class="group">
+                            <h3 class="group-title"><svg class="ic" aria-hidden="true"><use href="#i-file-text"/></svg> Description</h3>
+                            <div class="field">
+                                <textarea id="upDescription" required rows="3" placeholder="Write a short description" aria-label="Description"></textarea>
+                            </div>
+                        </div>
+
+                        <div class="group">
+                            <h3 class="group-title"><svg class="ic" aria-hidden="true"><use href="#i-image"/></svg> Cover artwork</h3>
+                            <div class="cover-picker">
+                                <label class="dropzone" for="upImageFile">
+                                    <span class="ibadge ibadge-lg"><svg class="ic" aria-hidden="true"><use href="#i-upload"/></svg></span>
+                                    <strong>Choose cover image</strong>
+                                    <small>JPG, PNG, WEBP</small>
+                                </label>
+                                <input type="file" id="upImageFile" accept="image/*" required onchange="previewCoverImage(event)" class="sr-file">
+                                <div id="imagePreviewContainer" class="cover-preview hidden">
+                                    <img id="imagePreview" src="" alt="Cover preview">
+                                </div>
+                            </div>
+                        </div>
+
+                        <button type="submit" id="mangaSubmitBtn" class="btn btn-primary btn-lg btn-block">
+                            <svg class="ic" aria-hidden="true"><use href="#i-upload"/></svg> Upload Manga Cover
+                        </button>
+                    </form>
+
+                    <!-- 2. CHAPTER UPLOADER FORM -->
+                    <form id="chapterUploadForm" onsubmit="handleChapterUpload(event)" class="form hidden">
+                        <div class="group">
+                            <h3 class="group-title"><svg class="ic" aria-hidden="true"><use href="#i-book-open"/></svg> Chapter details</h3>
+                            <div class="field">
+                                <label>Manga</label>
+                                <div class="select-wrap manga-pick" id="mangaPick">
+                                    <input type="hidden" id="chapterMangaSelect" value="">
+                                    <button type="button" id="mangaPickTrigger" class="select-trigger pick-trigger" onclick="toggleMangaPicker()" aria-haspopup="listbox">
+                                        <span class="pick-selected" id="mangaPickSelected"><span class="pick-ph"><svg class="ic" aria-hidden="true"><use href="#i-book-open"/></svg> Select manga</span></span>
+                                        <svg class="ic" aria-hidden="true"><use href="#i-chevron-down"/></svg>
+                                    </button>
+                                    <div id="mangaPickMenu" class="select-menu pick-menu hidden" role="listbox">
+                                        <div class="pick-search">
+                                            <svg class="ic" aria-hidden="true"><use href="#i-search"/></svg>
+                                            <input type="text" id="mangaPickSearch" placeholder="Search manga..." autocomplete="off" oninput="renderMangaPicker()">
+                                            <span id="mangaPickCount" class="badge badge-sm">0</span>
+                                        </div>
+                                        <div id="mangaPickList" class="pick-list"></div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="field">
+                                <label for="chapterTitleInput">Chapter Name / Number</label>
+                                <div class="input-icon">
+                                    <svg class="ic ic-lead" aria-hidden="true"><use href="#i-hash"/></svg>
+                                    <input type="text" id="chapterTitleInput" required placeholder="e.g. Chapter 1 or Vol. 1 Ch. 1">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="group">
+                            <h3 class="group-title"><svg class="ic" aria-hidden="true"><use href="#i-images"/></svg> Chapter images</h3>
+                            <button type="button" onclick="startGalleryPickerProcess()" class="dropzone dropzone-wide">
+                                <span class="ibadge ibadge-lg"><svg class="ic" aria-hidden="true"><use href="#i-images"/></svg></span>
+                                <strong id="galleryTriggerText">Open Gallery</strong>
+                                <small>Select multiple images or a ZIP file</small>
+                            </button>
+
+                            <input type="file" id="realGalleryFileInput" accept="image/*" multiple onchange="loadDevicePhotosToGallery(event)" class="hidden">
+                            <input type="file" id="realZipFileInput" accept=".zip" onchange="loadZipFileToGallery(event)" class="hidden">
+
+                            <!-- Progress -->
+                            <div id="zipProgressWrapper" class="progress hidden">
+                                <div class="progress-head">
+                                    <span id="zipProgressText"><svg class="ic ic-spin" aria-hidden="true"><use href="#i-loader"/></svg> Processing...</span>
+                                    <span id="zipProgressPercent">0%</span>
+                                    <button type="button" class="progress-cancel" onclick="cancelCurrentJob()">Cancel</button>
+                                </div>
+                                <div class="progress-track"><div id="zipProgressBar" class="progress-fill" style="width: 0%"></div></div>
+                            </div>
+
+                            <!-- Selected thumbnails -->
+                            <div id="sakuraSelectedPreviewWrapper" class="selected hidden">
+                                <div class="selected-head">
+                                    <span id="sakuraSelectedCountBadge" class="badge">0 selected</span>
+                                    <button type="button" onclick="clearSakuraSelection()" class="link-btn link-danger"><svg class="ic" aria-hidden="true"><use href="#i-trash"/></svg> Clear all</button>
+                                </div>
+                                <div id="sakuraSelectedGridContainer" class="thumb-grid"></div>
+                            </div>
+                        </div>
+
+                        <div class="group">
+                            <h3 class="group-title"><svg class="ic" aria-hidden="true"><use href="#i-zap"/></svg> Upload options</h3>
+                            <div class="field">
+                                <label>Images per upload</label>
+                                <div class="select-wrap" id="uploadSpeedWrap">
+                                    <button type="button" id="uploadSpeedTrigger" class="select-trigger" onclick="toggleUploadSpeedMenu()" aria-haspopup="listbox">
+                                        <span id="uploadSpeedText">2 images at a time</span>
+                                        <svg class="ic" aria-hidden="true"><use href="#i-chevron-down"/></svg>
+                                    </button>
+                                    <div id="uploadSpeedMenu" class="select-menu hidden" role="listbox">
+                                        <div class="select-option" data-value="1" onclick="selectUploadSpeed(1)">1 image at a time <small>(safest)</small></div>
+                                        <div class="select-option is-current" data-value="2" onclick="selectUploadSpeed(2)">2 images at a time <small>(recommended)</small></div>
+                                        <div class="select-option" data-value="3" onclick="selectUploadSpeed(3)">3 images at a time</div>
+                                        <div class="select-option" data-value="4" onclick="selectUploadSpeed(4)">4 images at a time</div>
+                                        <div class="select-option" data-value="5" onclick="selectUploadSpeed(5)">5 images at a time <small>(fastest)</small></div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="field">
+                                <label>Image compression</label>
+                                <div class="select-wrap" id="compressWrap">
+                                    <button type="button" id="compressTrigger" class="select-trigger" onclick="toggleCompressMenu()" aria-haspopup="listbox">
+                                        <span id="compressText">High quality (recommended)</span>
+                                        <svg class="ic" aria-hidden="true"><use href="#i-chevron-down"/></svg>
+                                    </button>
+                                    <div id="compressMenu" class="select-menu hidden" role="listbox">
+                                        <div class="select-option" data-value="off" onclick="selectCompress('off')">Original <small>(no compression)</small></div>
+                                        <div class="select-option is-current" data-value="high" onclick="selectCompress('high')">High quality <small>(recommended)</small></div>
+                                        <div class="select-option" data-value="small" onclick="selectCompress('small')">Smaller size <small>(still clean)</small></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <button type="submit" id="chapterSubmitBtn" class="btn btn-primary btn-lg btn-block">
+                            <svg class="ic" aria-hidden="true"><use href="#i-cloud-upload"/></svg> Upload Chapter
+                        </button>
+                    </form>
+                </section>
+
+                <!-- ============ LIBRARY CARD ============ -->
+                <section class="card card-library">
+                    <div class="card-head">
+                        <span class="ibadge ibadge-lg"><svg class="ic" aria-hidden="true"><use href="#i-folder-open"/></svg></span>
+                        <div>
+                            <h2>Library</h2>
+                            <p>Uploaded manga and chapters</p>
+                        </div>
+                        <span id="totalUploadsCount" class="badge">0 Items</span>
                     </div>
-                    <div id="coverTypeMenu" class="menu hidden">
-                        <div class="opt t-ongoing" onclick="selectCustomOption('upCoverType', 'coverTypeSelectedText', 'Manga', 'coverTypeMenu')">Manga</div>
-                        <div class="opt t-ongoing" onclick="selectCustomOption('upCoverType', 'coverTypeSelectedText', 'Manhwa', 'coverTypeMenu')">Manhwa</div>
-                    </div>
-                </div>
+                    <div id="managedCoversList" class="library"></div>
+                </section>
             </div>
+        </main>
+    </div>
 
-            <div class="field">
-                <label class="label" for="upRating">Rating</label>
-                <input type="text" id="upRating" class="input" required value="4.9 / 5.0" placeholder="4.9 / 5.0">
-            </div>
+    <!-- SUCCESS TOAST -->
+    <div id="successMsg" class="toast hidden" role="status">
+        <svg class="ic" aria-hidden="true"><use href="#i-check-circle"/></svg> <span>Upload successful</span>
+    </div>
 
-            <div class="field" style="gap:12px">
-                <div class="label">
-                    <span>Genres</span>
-                    <button type="button" onclick="toggleGenresShowMore()" id="genresToggleBtn" class="link-btn">
-                        <span id="genresToggleText">Show More</span> <i id="genresToggleIcon" class="fa-solid fa-chevron-down" style="font-size:9px;margin:0"></i>
-                    </button>
-                </div>
-                <div id="genresInitialContainer" class="chips">
-                    <label class="chip"><input type="checkbox" name="genreCheckbox" value="Action"><span>Action</span></label>
-                    <label class="chip"><input type="checkbox" name="genreCheckbox" value="Fantasy"><span>Fantasy</span></label>
-                    <label class="chip"><input type="checkbox" name="genreCheckbox" value="Romance"><span>Romance</span></label>
-                    <label class="chip"><input type="checkbox" name="genreCheckbox" value="Adventure"><span>Adventure</span></label>
-                    <label class="chip"><input type="checkbox" name="genreCheckbox" value="Drama"><span>Drama</span></label>
-                    <label class="chip"><input type="checkbox" name="genreCheckbox" value="Comedy"><span>Comedy</span></label>
-                </div>
-                <div id="genresExtendedContainer" class="chips hidden">
-                    <label class="chip"><input type="checkbox" name="genreCheckbox" value="Sci-Fi"><span>Sci-Fi</span></label>
-                    <label class="chip"><input type="checkbox" name="genreCheckbox" value="Horror"><span>Horror</span></label>
-                    <label class="chip"><input type="checkbox" name="genreCheckbox" value="Shonen"><span>Shonen</span></label>
-                    <label class="chip"><input type="checkbox" name="genreCheckbox" value="Isekai"><span>Isekai</span></label>
-                    <label class="chip"><input type="checkbox" name="genreCheckbox" value="Slice of Life"><span>Slice of Life</span></label>
-                    <label class="chip"><input type="checkbox" name="genreCheckbox" value="Supernatural"><span>Supernatural</span></label>
-                </div>
-            </div>
-
-            <div class="field">
-                <label class="label" for="upDescription">Description</label>
-                <textarea id="upDescription" class="textarea" required rows="2" placeholder="Enter manga description"></textarea>
-            </div>
-
-            <div class="field">
-                <label class="label" for="upImageFile">Cover image</label>
-                <input type="file" id="upImageFile" class="file" accept="image/*" required onchange="previewCoverImage(event)">
-                <div id="imagePreviewContainer" class="cover-preview hidden">
-                    <img id="imagePreview" src="" alt="Preview">
-                </div>
-            </div>
-
-            <button type="submit" id="mangaSubmitBtn" class="btn btn-primary">
-                <i class="fa-solid fa-upload"></i> Upload Manga Cover
-            </button>
-        </form>
-
-        <!-- 2. CHAPTER UPLOADER -->
-        <form id="chapterUploadForm" onsubmit="handleChapterUpload(event)" class="form hidden">
-            <div class="field">
-                <label class="label" for="chapterMangaSelect"><span><i class="fa-solid fa-book"></i>Manga</span></label>
-                <select id="chapterMangaSelect" required class="input" style="background:var(--bg)">
-                    <option value="" disabled selected>Select target manga</option>
-                </select>
-            </div>
-            <div class="field">
-                <label class="label" for="chapterTitleInput"><span><i class="fa-solid fa-bookmark"></i>Chapter name / number</span></label>
-                <input type="text" id="chapterTitleInput" class="input" required placeholder="e.g. Chapter 1 or Vol. 1 Ch. 1">
-            </div>
-
-            <div class="field" style="gap:14px">
-                <span class="label"><span><i class="fa-solid fa-images"></i>Chapter images</span></span>
-                <div onclick="startGalleryPickerProcess()" class="drop">
-                    <i class="fa-solid fa-photo-film"></i>
-                    <b id="galleryTriggerText">Open Gallery</b>
-                    <small>Select multiple photos or a ZIP. Uploads in order.</small>
-                </div>
-
-                <input type="file" id="realGalleryFileInput" accept="image/*" multiple onchange="loadDevicePhotosToGallery(event)" class="hidden">
-                <input type="file" id="realZipFileInput" accept=".zip" onchange="loadZipFileToGallery(event)" class="hidden">
-
-                <div id="zipProgressWrapper" class="progress hidden">
-                    <div class="progress-head">
-                        <span id="zipProgressText"><i class="fa-solid fa-spinner fa-spin"></i> Processing (0/0)...</span>
-                        <span id="zipProgressPercent">0%</span>
-                    </div>
-                    <div class="bar"><div id="zipProgressBar" style="width:0%"></div></div>
-                </div>
-
-                <div id="sakuraSelectedPreviewWrapper" class="selected hidden">
-                    <div class="selected-head">
-                        <span id="sakuraSelectedCountBadge">0 selected</span>
-                        <button type="button" onclick="clearSakuraSelection()" class="danger-link"><i class="fa-solid fa-trash-can"></i> Clear all</button>
-                    </div>
-                    <div id="sakuraSelectedGridContainer" class="thumbs"></div>
-                </div>
-            </div>
-
-            <button type="submit" id="chapterSubmitBtn" class="btn btn-primary">
-                <i class="fa-solid fa-cloud-arrow-up"></i> Upload Chapter
-            </button>
-        </form>
-
-        <div id="successMsg" class="toast hidden">Uploaded and synced successfully.</div>
-
-        <!-- LIBRARY -->
-        <section class="library">
-            <div class="section-head">
-                <h2>Library</h2>
-                <span id="totalUploadsCount">0 Items</span>
-            </div>
-            <div id="managedCoversList"></div>
-        </section>
-    </main>
-
-    <!-- GALLERY PICKER -->
-    <div id="sakuraGalleryModal" class="overlay hidden">
-        <div class="sheet">
+    <!-- ============ GALLERY PICKER MODAL ============ -->
+    <div id="sakuraGalleryModal" class="modal hidden">
+        <div class="sheet sheet-lg">
             <div class="sheet-head">
-                <h3>Select photos</h3>
-                <button type="button" onclick="closeSakuraGalleryModal()" class="icon-btn" aria-label="Close"><i class="fa-solid fa-xmark"></i></button>
+                <div class="sheet-title">
+                    <span class="ibadge"><svg class="ic" aria-hidden="true"><use href="#i-images"/></svg></span>
+                    <h3>Select photos</h3>
+                </div>
+                <button type="button" onclick="cancelSakuraGalleryModal()" class="icon-btn" aria-label="Close"><svg class="ic" aria-hidden="true"><use href="#i-x"/></svg></button>
             </div>
-            <div class="gallery-tools">
-                <button type="button" onclick="triggerDevicePhotoPicker()" class="btn btn-soft"><i class="fa-solid fa-plus"></i> Add photos</button>
-                <button type="button" onclick="triggerZipFilePicker()" class="btn btn-soft"><i class="fa-solid fa-file-zipper"></i> Upload ZIP</button>
+            <div class="sheet-actions">
+                <button type="button" onclick="triggerDevicePhotoPicker()" class="btn btn-soft"><svg class="ic" aria-hidden="true"><use href="#i-plus"/></svg> Add Photos</button>
+                <button type="button" onclick="triggerZipFilePicker()" class="btn btn-soft"><svg class="ic" aria-hidden="true"><use href="#i-file-zip"/></svg> Upload ZIP</button>
+                <button type="button" onclick="cleanAllGalleryPhotos()" class="btn btn-soft btn-clean"><svg class="ic" aria-hidden="true"><use href="#i-trash"/></svg> Clean all</button>
             </div>
-            <div class="gallery-body">
+            <div id="modalProgressWrapper" class="progress modal-progress hidden">
+                <div class="progress-head">
+                    <span id="modalProgressText"><svg class="ic ic-spin" aria-hidden="true"><use href="#i-loader"/></svg> Processing...</span>
+                    <span id="modalProgressPercent">0%</span>
+                    <button type="button" class="progress-cancel" onclick="cancelCurrentJob()">Cancel</button>
+                </div>
+                <div class="progress-track"><div id="modalProgressBar" class="progress-fill" style="width: 0%"></div></div>
+            </div>
+            <div class="sheet-body">
                 <div id="sakuraGalleryGrid" class="gallery-grid"></div>
             </div>
-            <div class="gallery-foot">
-                <b id="modalSelectedCount">0 selected</b>
-                <div class="sheet-actions">
-                    <button type="button" onclick="closeSakuraGalleryModal()" class="btn btn-text">Cancel</button>
-                    <button type="button" onclick="confirmSakuraGallerySelection()" class="btn btn-soft" style="background:var(--teal);color:var(--on-teal)">Select &amp; add</button>
+            <div class="sheet-foot">
+                <span id="modalSelectedCount" class="badge">0 selected</span>
+                <div class="foot-actions">
+                    <button type="button" onclick="cancelSakuraGalleryModal()" class="btn btn-ghost">Cancel</button>
+                    <button type="button" onclick="confirmSakuraGallerySelection()" class="btn btn-primary"><svg class="ic" aria-hidden="true"><use href="#i-check"/></svg> Select &amp; Add</button>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- EDIT STATUS -->
-    <div id="editStatusModal" class="overlay hidden">
-        <div class="sheet narrow">
-            <h3>Edit status</h3>
+    <!-- ============ EDIT STATUS MODAL ============ -->
+    <div id="editStatusModal" class="modal hidden">
+        <div class="sheet sheet-sm">
+            <div class="sheet-head">
+                <div class="sheet-title">
+                    <span class="ibadge"><svg class="ic" aria-hidden="true"><use href="#i-pencil"/></svg></span>
+                    <h3>Edit status</h3>
+                </div>
+                <button type="button" onclick="closeEditModal()" class="icon-btn" aria-label="Close"><svg class="ic" aria-hidden="true"><use href="#i-x"/></svg></button>
+            </div>
             <input type="hidden" id="editMangaId">
-            <div class="field relative">
-                <span class="label">Status</span>
-                <input type="hidden" id="modalStatusValue" value="Ongoing">
-                <div onclick="toggleCustomDropdown('modalStatusMenu')" class="select-trigger">
-                    <span id="modalStatusText" class="t-ongoing">Ongoing</span>
-                    <i class="fa-solid fa-chevron-down"></i>
-                </div>
-                <div id="modalStatusMenu" class="menu hidden">
-                    <div class="opt t-ongoing" onclick="selectCustomOption('modalStatusValue', 'modalStatusText', 'Ongoing', 'modalStatusMenu')">Ongoing</div>
-                    <div class="opt t-complete" onclick="selectCustomOption('modalStatusValue', 'modalStatusText', 'Complete', 'modalStatusMenu')">Complete</div>
-                    <div class="opt t-pause" onclick="selectCustomOption('modalStatusValue', 'modalStatusText', 'Pause', 'modalStatusMenu')">Pause</div>
+            <div class="field">
+                <label>Status</label>
+                <div class="select-wrap">
+                    <input type="hidden" id="modalStatusValue" value="Ongoing">
+                    <button type="button" onclick="toggleCustomDropdown('modalStatusMenu')" class="select-trigger">
+                        <span id="modalStatusText" class="status-text" data-status="Ongoing">Ongoing</span>
+                        <svg class="ic" aria-hidden="true"><use href="#i-chevron-down"/></svg>
+                    </button>
+                    <div id="modalStatusMenu" class="select-menu hidden">
+                        <div onclick="selectCustomOption('modalStatusValue', 'modalStatusText', 'Ongoing', 'modalStatusMenu')" class="select-option status-text" data-status="Ongoing">Ongoing</div>
+                        <div onclick="selectCustomOption('modalStatusValue', 'modalStatusText', 'Complete', 'modalStatusMenu')" class="select-option status-text" data-status="Complete">Complete</div>
+                        <div onclick="selectCustomOption('modalStatusValue', 'modalStatusText', 'Pause', 'modalStatusMenu')" class="select-option status-text" data-status="Pause">Pause</div>
+                    </div>
                 </div>
             </div>
-            <div class="sheet-actions" style="margin-top:56px">
-                <button type="button" onclick="closeEditModal()" class="btn btn-text">Cancel</button>
-                <button type="button" onclick="saveMangaStatus()" class="btn btn-soft" style="background:var(--teal);color:var(--on-teal)">Save</button>
+            <div class="sheet-foot sheet-foot-plain">
+                <button type="button" onclick="closeEditModal()" class="btn btn-ghost">Cancel</button>
+                <button type="button" onclick="saveMangaStatus()" class="btn btn-primary"><svg class="ic" aria-hidden="true"><use href="#i-check"/></svg> Save</button>
             </div>
         </div>
     </div>
 
-    <!-- DELETE CONFIRM -->
-    <div id="deleteConfirmModal" class="overlay hidden">
-        <div class="sheet narrow center">
-            <div class="warn-ico"><i class="fa-solid fa-triangle-exclamation"></i></div>
-            <div>
-                <h3>Delete?</h3>
-                <p id="deleteModalDesc" style="margin-top:6px">Are you sure you want to delete this item?</p>
-            </div>
+    <!-- ============ DELETE CONFIRM MODAL ============ -->
+    <div id="deleteConfirmModal" class="modal hidden">
+        <div class="sheet sheet-sm sheet-center">
+            <div class="warn-icon"><svg class="ic" aria-hidden="true"><use href="#i-alert-triangle"/></svg></div>
+            <h3>Delete this item?</h3>
+            <p id="deleteModalDesc" class="muted">Are you sure you want to delete this item?</p>
             <input type="hidden" id="deleteTargetType">
             <input type="hidden" id="deleteTargetParentId">
             <input type="hidden" id="deleteTargetId">
-            <div class="sheet-actions">
-                <button type="button" onclick="closeDeleteModal()" class="btn btn-text">Cancel</button>
-                <button type="button" onclick="confirmDelete()" class="btn btn-danger">Yes, delete</button>
+            <div class="sheet-foot sheet-foot-plain sheet-foot-split">
+                <button type="button" onclick="closeDeleteModal()" class="btn btn-ghost">Cancel</button>
+                <button type="button" onclick="confirmDelete()" class="btn btn-danger"><svg class="ic" aria-hidden="true"><use href="#i-trash"/></svg> Delete</button>
             </div>
         </div>
     </div>
 
+    <!-- ============ APP DIALOG (confirm / message) ============ -->
+    <div id="appDialog" class="modal dlg hidden" role="dialog" aria-modal="true" aria-labelledby="appDialogTitle">
+        <div class="sheet sheet-sm sheet-center">
+            <div id="appDialogIcon" class="dlg-icon is-danger"></div>
+            <h3 id="appDialogTitle">Are you sure?</h3>
+            <p id="appDialogMsg" class="muted dlg-msg"></p>
+            <div id="appDialogFoot" class="sheet-foot sheet-foot-plain sheet-foot-split">
+                <button type="button" id="appDialogCancel" onclick="appDialogCancel()" class="btn btn-ghost">Cancel</button>
+                <button type="button" id="appDialogOk" onclick="appDialogOk()" class="btn btn-danger">OK</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main logic (Firebase ES module) -->
     <script type="module" src="script.js"></script>
 </body>
 </html>
