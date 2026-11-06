@@ -2,19 +2,23 @@
 <html lang="my" class="dark h-full">
 <head>
     <meta charset="UTF-8">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://www.gstatic.com https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; font-src 'self' data: https://fonts.gstatic.com https://cdnjs.cloudflare.com; img-src 'self' https: data: blob:; connect-src 'self' https: wss://*.firebasedatabase.app; frame-src 'self' https://*.firebaseapp.com; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests">
+    <meta name="referrer" content="no-referrer">
+    <meta name="robots" content="noindex, nofollow">
+    <script>if (window.top !== window.self) { try { window.top.location = window.self.location; } catch (e) { document.documentElement.style.display = "none"; } }</script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Sakura Uploader - Cloudinary & Firebase Sync</title>
-              
+    
     <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="style.css">
-              
+    
     <!-- FontAwesome Icons CDN -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-              
+    
     <!-- JSZip CDN for ZIP File Upload Support -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-         
+
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -55,14 +59,48 @@
 </head>
 <body class="flex flex-col min-h-screen relative overflow-x-hidden w-full m-0 p-4 items-center justify-start">
     <canvas id="sakuraCanvas"></canvas>
-              
+
+    <!-- LOGIN MODAL / OVERLAY (Blocks panel until authenticated) -->
+    <div id="loginModal" class="hidden fixed inset-0 bg-black/90 backdrop-blur-xl z-50 flex items-center justify-center p-4">
+        <div class="glass-card rounded-2xl p-6 w-full max-w-sm space-y-5 border border-sakura-500/40 shadow-2xl">
+            <div class="text-center space-y-1 border-b border-dark-border pb-3">
+                <h2 class="text-base font-bold font-serif text-sakura-glow flex items-center justify-center gap-2">
+                    <i class="fa-solid fa-lock text-sakura-500"></i> Uploader Authentication
+                </h2>
+                <p class="text-[11px] text-slate-400">Please login to access Sakura Uploader panel desu~</p>
+            </div>
+            <form id="loginForm" onsubmit="handleLogin(event)" class="space-y-4">
+                <div class="space-y-1">
+                    <label class="text-xs font-bold text-slate-300">Email Address</label>
+                    <input type="email" id="loginEmail" required placeholder="uploader@sakurarealm.com" class="w-full px-3.5 py-2.5 rounded-xl bg-dark-base border border-dark-border text-white text-xs focus:outline-none focus:border-sakura-500 transition">
+                </div>
+                <div class="space-y-1">
+                    <label class="text-xs font-bold text-slate-300">Password</label>
+                    <input type="password" id="loginPassword" required placeholder="••••••••" class="w-full px-3.5 py-2.5 rounded-xl bg-dark-base border border-dark-border text-white text-xs focus:outline-none focus:border-sakura-500 transition">
+                </div>
+                <div class="flex items-center justify-between text-xs">
+                    <label class="flex items-center gap-2 text-slate-300 cursor-pointer select-none">
+                        <input type="checkbox" id="rememberMeCheckbox" class="accent-sakura-500 w-4 h-4 rounded"> Remember Me
+                    </label>
+                </div>
+                <button type="submit" id="loginSubmitBtn" class="w-full py-3 rounded-xl bg-gradient-to-r from-sakura-600 to-sakura-500 text-white font-bold text-xs shadow-sakura-glow hover:opacity-90 transition active:scale-95 flex items-center justify-center gap-2">
+                    <i class="fa-solid fa-right-to-bracket"></i> Login to Uploader
+                </button>
+            </form>
+        </div>
+    </div>
+
     <div class="relative z-10 w-full max-w-lg glass-card rounded-2xl p-5 sm:p-6 space-y-5 shadow-2xl border border-dark-border my-6">
-                  
-        <div class="text-center space-y-1 border-b border-dark-border pb-3">
+        
+        <div class="text-center space-y-1 border-b border-dark-border pb-3 flex items-center justify-between">
             <h1 class="text-lg font-bold font-serif text-sakura-glow flex items-center justify-center gap-2">
                 <i class="fa-solid fa-cloud-arrow-up text-sakura-500"></i> Sakura Uploader Panel
             </h1>
+            <button type="button" id="logoutBtn" onclick="handleLogout()" class="hidden px-3 py-1.5 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white transition text-xs font-bold flex items-center gap-1.5">
+                <i class="fa-solid fa-right-from-bracket"></i> Logout
+            </button>
         </div>
+
         <div class="grid grid-cols-2 gap-2 p-1 bg-dark-base rounded-xl border border-dark-border">
             <button type="button" onclick="switchTab('mangaTab')" id="btnMangaTab" class="py-2 rounded-lg text-xs font-bold text-white bg-sakura-600 shadow-md transition">Manga Cover</button>
             <button type="button" onclick="switchTab('chapterTab')" id="btnChapterTab" class="py-2 rounded-lg text-xs font-bold text-slate-400 hover:text-white transition">Chapter Uploader</button>
@@ -171,7 +209,7 @@
                 <label class="text-xs font-bold text-slate-300 flex items-center gap-1.5">
                     <i class="fa-solid fa-images text-sakura-400"></i> Chapter Images (Cloudinary & Firebase Sync)
                 </label>
-                  
+                
                 <div onclick="startGalleryPickerProcess()" class="w-full py-4 border-2 border-dashed border-sakura-500/40 rounded-xl bg-sakura-900/10 hover:bg-sakura-900/20 text-center cursor-pointer transition flex flex-col items-center justify-center gap-1.5">
                     <i class="fa-solid fa-photo-film text-sakura-400 text-lg"></i>
                     <span id="galleryTriggerText" class="text-xs font-bold text-sakura-300">Open Telegram-Style Gallery</span>
@@ -204,6 +242,7 @@
                     <div id="sakuraSelectedGridContainer" class="grid grid-cols-4 gap-2 max-h-40 overflow-y-auto pr-1"></div>
                 </div>
             </div>
+
             <button type="submit" id="chapterSubmitBtn" class="w-full py-3 rounded-xl bg-gradient-to-r from-sakura-600 to-sakura-500 text-white font-bold text-xs shadow-sakura-glow hover:opacity-90 transition active:scale-95 flex items-center justify-center gap-2 mt-1">
                 <i class="fa-solid fa-cloud-arrow-up"></i> Upload Chapter to Cloudinary & Firebase
             </button>
@@ -253,7 +292,7 @@
             <h2 class="text-xs sm:text-sm font-bold font-serif text-slate-100">Upload Manage (Cloudinary & Firebase)</h2>
             <span id="totalUploadsCount" class="text-[10px] bg-sakura-900/60 text-sakura-300 px-2 py-0.5 rounded-full font-bold border border-sakura-500/30">0 Items</span>
         </div>
-                  
+        
         <div id="managedCoversList" class="space-y-3 max-h-80 overflow-y-auto pr-1"></div>
     </div>
 
@@ -306,4 +345,3 @@
     <script type="module" src="script.js"></script>
 </body>
 </html>
-
