@@ -85,6 +85,7 @@ function friendlyAuthError(err) {
         case "auth/invalid-login-credentials": return "Incorrect email or password.";
         case "auth/too-many-requests": return "Too many attempts. Please wait a moment and try again.";
         case "auth/network-request-failed": return "Network error. Please check your connection.";
+        case "auth/timeout": return "Connection is slow. Please tap Sign in again.";
         default: return "Unable to sign in. " + ((err && err.message) || "");
     }
 }
@@ -116,6 +117,7 @@ function showAuthScreen(loggedIn, user) {
 
 let loginInProgress = false;
 let appDataLoaded = false;
+let loggedInThisPage = false;      // in-memory flag: survives blocked sessionStorage / late auth callbacks
 
 onAuthStateChanged(auth, async (user) => {
     if (user) {
@@ -123,21 +125,36 @@ onAuthStateChanged(auth, async (user) => {
         // brand-new browser session, they must log in again.
         const remembered = store.local.get(REMEMBER_KEY) === "1";
         const sessionActive = store.session.get(SESSION_KEY) === "1";
-        if (!remembered && !sessionActive && !loginInProgress) {
+        if (!remembered && !sessionActive && !loginInProgress && !loggedInThisPage) {
             try { await signOut(auth); } catch (e) { console.error(e); }
             return; // onAuthStateChanged fires again with user = null
         }
         showAuthScreen(true, user);
         if (!appDataLoaded) {
             appDataLoaded = true;
-            renderManagedCovers();
-            populateMangaDropdown();
+            loadAppDataSafely();
         }
     } else {
         appDataLoaded = false;
+        loggedInThisPage = false;
         showAuthScreen(false);
     }
 });
+
+// Loads the lists after login. Waits for the page + local DB to be ready and retries once,
+// so a slow token / slow start never shows a random error.
+async function loadAppDataSafely() {
+    if (document.readyState === "loading") await new Promise(r => document.addEventListener("DOMContentLoaded", r, { once: true }));
+    for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+            await Promise.all([renderManagedCovers(), populateMangaDropdown()]);
+            return;
+        } catch (e) {
+            console.warn("Data load retry:", e);
+            await new Promise(r => setTimeout(r, 600));
+        }
+    }
+}
 
 window.togglePasswordVisibility = function() {
     const input = document.getElementById("loginPassword");
@@ -148,8 +165,18 @@ window.togglePasswordVisibility = function() {
     btn.setAttribute("aria-label", show ? "Hide password" : "Show password");
 };
 
+// never let a login step hang forever (slow autofill / network): give up after ms
+function withTimeout(promise, ms, code) {
+    let t;
+    const timer = new Promise((_, rej) => { t = setTimeout(() => rej({ code }), ms); });
+    return Promise.race([promise, timer]).finally(() => clearTimeout(t));
+}
+let loginBusy = false;
+
 window.handleLogin = async function(event) {
-    event.preventDefault();
+    if (event && event.preventDefault) event.preventDefault();
+    if (loginBusy) return;                       // tap + submit can both fire: only run once
+    loginBusy = true;
     const email = document.getElementById("loginEmail").value.trim();
     const password = document.getElementById("loginPassword").value;
     const rememberMe = document.getElementById("rememberMeCheckbox").checked;
@@ -157,6 +184,7 @@ window.handleLogin = async function(event) {
 
     showLoginError("");
     if (!email || !password) {
+        loginBusy = false;
         showLoginError("Please enter your email and password.");
         return;
     }
@@ -168,9 +196,10 @@ window.handleLogin = async function(event) {
     try {
         // Choose where Firebase keeps the login BEFORE signing in
         const persistence = rememberMe ? browserLocalPersistence : browserSessionPersistence;
-        await setPersistence(auth, persistence);
+        try { await withTimeout(setPersistence(auth, persistence), 5000, "auth/timeout"); } catch (e) { console.warn("setPersistence skipped:", e); }
 
         // Mark choice (guards in onAuthStateChanged read these)
+        loggedInThisPage = true;
         store.session.set(SESSION_KEY, "1");
         if (rememberMe) {
             store.local.set(REMEMBER_KEY, "1");
@@ -180,20 +209,54 @@ window.handleLogin = async function(event) {
             store.local.del(REMEMBER_EMAIL_KEY);
         }
 
-        await signInWithEmailAndPassword(auth, email, password);
+        // temporary network hiccups: try once more before showing an error
+        const TEMP = ["auth/network-request-failed", "auth/internal-error", "auth/timeout"];
+        try {
+            await withTimeout(signInWithEmailAndPassword(auth, email, password), 10000, "auth/timeout");
+        } catch (e1) {
+            if (!TEMP.includes(e1 && e1.code)) throw e1;
+            await new Promise(r => setTimeout(r, 500));
+            await withTimeout(signInWithEmailAndPassword(auth, email, password), 12000, "auth/timeout");
+        }
         document.getElementById("loginPassword").value = "";
     } catch (err) {
+        loggedInThisPage = false;
         store.session.del(SESSION_KEY);
         showLoginError(friendlyAuthError(err));
     } finally {
-        loginInProgress = false;
+        // keep the guard on a little longer: the auth callback can arrive after sign-in resolves
+        loginBusy = false;
+        setTimeout(() => { loginInProgress = false; }, 1500);
         submitBtn.disabled = false;
         submitBtn.innerHTML = `${ic('log-in')} Sign in`;
     }
 };
 
+// Saved-password (autofill) fix: the first tap on Sign in is often swallowed while the keyboard /
+// autofill bar closes and the layout shifts. React on pointerup of the button itself instead.
+(function wireLoginTap() {
+    const btn = document.getElementById("loginSubmitBtn");
+    const form = document.getElementById("loginForm");
+    if (!btn || !form) return;
+    btn.addEventListener("pointerup", (e) => {
+        if (e.pointerType === "mouse" && e.button !== 0) return;
+        e.preventDefault();
+        window.handleLogin(e);
+    });
+    btn.addEventListener("click", (e) => {
+        e.preventDefault();
+        if (e.detail === 0) window.handleLogin(e);   // Enter key / keyboard "Go" (no pointer): still sign in
+    });
+    // some browsers fill the password without telling the page: re-read it on blur / change
+    ["loginEmail", "loginPassword"].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) ["change", "animationstart"].forEach(ev => el.addEventListener(ev, () => {}));
+    });
+})();
+
 window.handleLogout = async function() {
     try {
+        loggedInThisPage = false;
         store.session.del(SESSION_KEY);
         // Logging out manually forgets "Remember Me" so the next visit asks for login again
         store.local.del(REMEMBER_KEY);
@@ -517,45 +580,52 @@ function getProgressUI() {
 }
 
 window.switchTab = function(tabName) {
-    const btnManga = document.getElementById("btnMangaTab");
-    const btnChapter = document.getElementById("btnChapterTab");
-    const formManga = document.getElementById("mangaUploadForm");
-    const formChapter = document.getElementById("chapterUploadForm");
-    if (tabName === 'mangaTab') {
-        btnManga.classList.add("is-active");
-        btnChapter.classList.remove("is-active");
-        formManga.classList.remove("hidden");
-        formChapter.classList.add("hidden");
-    } else {
-        btnChapter.classList.add("is-active");
-        btnManga.classList.remove("is-active");
-        formChapter.classList.remove("hidden");
-        formManga.classList.add("hidden");
-        populateMangaDropdown();
-    }
+    const tabs = { mangaTab: ["btnMangaTab", "mangaUploadForm"], chapterTab: ["btnChapterTab", "chapterUploadForm"], layoutTab: ["btnLayoutTab", "layoutPanel"] };
+    Object.entries(tabs).forEach(([name, [btnId, panelId]]) => {
+        document.getElementById(btnId).classList.toggle("is-active", name === tabName);
+        document.getElementById(panelId).classList.toggle("hidden", name !== tabName);
+    });
+    if (tabName === 'chapterTab') populateMangaDropdown();
+    if (tabName === 'layoutTab') lcOpen();
 }
+
+// --- Firebase nodes: normal manga and adult manga are kept in two separate places ---
+const MAIN_NODE = 'manga_list';
+const ADULT_NODE = 'adult_list';
+const ADULT_TYPES = ['Doujin', 'Pornhwa'];                       // these Types go to ADULT_NODE
+const nodeForType = (t) => ADULT_TYPES.includes(String(t || '')) ? ADULT_NODE : MAIN_NODE;
+const mangaNodeById = {};                                        // manga id -> node it lives in
+
+// read both nodes and merge them: [{ id, node, data }]
+async function readAllMangaNodes() {
+    const out = [];
+    for (const node of [MAIN_NODE, ADULT_NODE]) {
+        const snap = await get(child(ref(database), node));
+        if (!snap.exists()) continue;
+        const data = snap.val() || {};
+        Object.keys(data).forEach(id => { mangaNodeById[id] = node; out.push({ id, node, data: data[id] || {} }); });
+    }
+    return out;
+}
+const nodeOf = (id) => mangaNodeById[id] || MAIN_NODE;
 
 let mangaPickData = [];
 
 async function populateMangaDropdown() {
     if (!document.getElementById("chapterMangaSelect")) return;
     try {
-        const snapshot = await get(child(ref(database), 'manga_list'));
+        const all = await readAllMangaNodes();
         mangaPickData = [];
-        if (snapshot.exists()) {
-            const data = snapshot.val();
-            Object.keys(data).forEach(id => {
-                const m = data[id] || {};
-                mangaPickData.push({
-                    id,
-                    title: m.title || id,
-                    image: m.image || m.cover_image || "",
-                    status: m.status || m.chapter || "Ongoing",
-                    type: m.coverType || "Manga",
-                    chapters: Object.keys(m.chapters || {}).length
-                });
+        all.forEach(({ id, data: m }) => {
+            mangaPickData.push({
+                id,
+                title: m.title || id,
+                image: m.image || m.cover_image || "",
+                status: m.status || m.chapter || "Ongoing",
+                type: m.coverType || "Manga",
+                chapters: Object.keys(m.chapters || {}).length
             });
-        }
+        });
         // keep the current choice if it still exists
         const cur = document.getElementById("chapterMangaSelect");
         if (cur.value && !mangaPickData.some(x => x.id === cur.value)) cur.value = "";
@@ -957,6 +1027,7 @@ const GENRE_GROUPS = [
     ["Popular", ["Action", "Adventure", "Comedy", "Drama", "Fantasy", "Romance", "Sci-Fi", "Horror", "Mystery", "Thriller"]],
     ["Audience", ["Shonen", "Shoujo", "Seinen", "Josei", "Kids"]],
     ["Setting & Theme", ["Isekai", "School Life", "Slice of Life", "Supernatural", "Historical", "Martial Arts", "Magic", "Mecha", "Sports", "Cultivation", "Reincarnation", "Time Travel", "Post-Apocalyptic", "Survival", "Superhero", "Game", "Military", "Crime"]],
+    ["Adult (18+)", ["Adult", "Mature", "Smut", "Erotica", "Uncensored", "Yaoi", "Yuri", "NTR", "Netorare", "Cheating", "Vanilla", "Femdom", "BDSM", "Milf", "Office Romance", "Forbidden Love", "Revenge", "Dark", "Full Color"]],
     ["Mood & Style", ["Psychological", "Tragedy", "Gore", "Ecchi", "Harem", "Reverse Harem", "Villainess", "Demons", "Vampire", "Music", "Cooking", "Medical", "Office Life"]]
 ];
 
@@ -1077,7 +1148,10 @@ window.handleMangaUpload = async function(event) {
             chapters: {}
         };
         
-        await set(ref(database, 'manga_list/' + mangaId), newMangaData);
+        const targetNode = nodeForType(coverType);
+        if (targetNode === ADULT_NODE) newMangaData.adult = true;
+        await set(ref(database, targetNode + '/' + mangaId), newMangaData);
+        mangaNodeById[mangaId] = targetNode;
         
         document.getElementById("mangaUploadForm").reset();
         document.getElementById("imagePreviewContainer").classList.add("hidden");
@@ -1153,7 +1227,7 @@ window.handleChapterUpload = async function(event) {
             pages: uploadedPagesUrls
         };
         
-        await set(ref(database, `manga_list/${mangaId}/chapters/${chapterId}`), newChapterData);
+        await set(ref(database, `${nodeOf(mangaId)}/${mangaId}/chapters/${chapterId}`), newChapterData);
         
         if (chapterTitleInput) chapterTitleInput.value = "";
         if (mangaSelectEl) mangaSelectEl.selectedIndex = 0;
@@ -1198,94 +1272,94 @@ function updateStats(mangas, chapters, ongoing) {
 }
 
 // --- RENDER MANAGED COVERS FROM FIREBASE ---
+// The Library is split in two boxes:  Normal (manga_list)  and  Adult (adult_list)
+function buildMangaCard(mangaId, manga) {
+    const mangaCard = document.createElement("div");
+    mangaCard.className = "manga";
+
+    const mangaStatus = manga.status || manga.chapter || 'Ongoing';
+    const chaptersObj = manga.chapters || {};
+    const chapterKeys = Object.keys(chaptersObj);
+    const safeId = esc(mangaId);
+
+    let chaptersHtml = '';
+    if (chapterKeys.length > 0) {
+        chapterKeys.forEach(chId => {
+            const ch = chaptersObj[chId] || {};
+            const pagesLen = ch.pages ? ch.pages.length : 0;
+            chaptersHtml += `
+                <div class="chapter-row">
+                    <span class="chapter-name">${esc(ch.chapter_title || chId)}<span class="chapter-pages">${pagesLen} pages</span></span>
+                    <button type="button" onclick="promptDelete('chapter', '${safeId}', '${esc(chId)}')" class="icon-btn is-red" title="Delete Chapter">
+                        ${ic('trash')}
+                    </button>
+                </div>
+            `;
+        });
+    } else {
+        chaptersHtml = `<div class="chapter-none">No chapters yet.</div>`;
+    }
+
+    mangaCard.innerHTML = `
+        <div class="manga-main">
+            <img class="manga-cover" src="${esc(manga.image || manga.cover_image || '')}" alt="${esc(manga.title)}" loading="lazy">
+            <div class="manga-info">
+                <span class="manga-title">${esc(manga.title)}</span>
+                <div class="manga-meta">
+                    <span class="status-text" data-status="${esc(mangaStatus)}">${esc(mangaStatus)}</span>
+                    <span class="dot"></span>
+                    <span class="type">${esc(manga.coverType || 'Manga')}</span>
+                </div>
+            </div>
+            <div class="manga-actions">
+                <button type="button" onclick="openEditModal('${safeId}', '${esc(mangaStatus)}')" class="icon-btn is-teal" title="Edit Status">
+                    ${ic('pencil')}
+                </button>
+                <button type="button" onclick="promptDelete('manga', '${safeId}')" class="icon-btn is-red" title="Delete Manga">
+                    ${ic('trash')}
+                </button>
+            </div>
+        </div>
+        <details class="chapters">
+            <summary>${ic('chevron-right')} Chapters (${chapterKeys.length})</summary>
+            <div class="chapter-list">
+                ${chaptersHtml}
+            </div>
+        </details>
+    `;
+    return mangaCard;
+}
+
 async function renderManagedCovers() {
-    const listContainer = document.getElementById("managedCoversList");
+    const boxes = [
+        { node: MAIN_NODE,  list: document.getElementById("managedCoversListNormal"), badge: document.getElementById("normalCountBadge"), empty: "No normal manga uploaded yet." },
+        { node: ADULT_NODE, list: document.getElementById("managedCoversListAdult"),  badge: document.getElementById("adultCountBadge"),  empty: "No adult manga uploaded yet." }
+    ];
+    if (!boxes[0].list || !boxes[1].list) return;
     const countBadge = document.getElementById("totalUploadsCount");
-    if (!listContainer) return;
-    
+
     try {
-        const snapshot = await get(child(ref(database), 'manga_list'));
-        listContainer.innerHTML = "";
-        if (!snapshot.exists()) {
-            if (countBadge) countBadge.textContent = "0 Items";
-            updateStats(0, 0, 0);
-            listContainer.innerHTML = `
-                <div class="empty">
-                    ${ic('folder-open')}
-                    No manga uploaded yet.
-                </div>
-            `;
-            return;
-        }
-        
-        const data = snapshot.val();
-        const mangaKeys = Object.keys(data);
-        if (countBadge) countBadge.textContent = `${mangaKeys.length} Mangas`;
+        const allItems = await readAllMangaNodes();
         let totalChapters = 0, totalOngoing = 0;
-        mangaKeys.forEach(k => {
-            const mg = data[k] || {};
-            totalChapters += Object.keys(mg.chapters || {}).length;
-            if ((mg.status || mg.chapter || 'Ongoing') === 'Ongoing') totalOngoing++;
-        });
-        updateStats(mangaKeys.length, totalChapters, totalOngoing);
-        
-        mangaKeys.forEach((mangaId) => {
-            const manga = data[mangaId] || {};
-            const mangaCard = document.createElement("div");
-            mangaCard.className = "manga";
-            
-            const mangaStatus = manga.status || manga.chapter || 'Ongoing';
-            const chaptersObj = manga.chapters || {};
-            const chapterKeys = Object.keys(chaptersObj);
-            const safeId = esc(mangaId);
-            
-            let chaptersHtml = '';
-            if (chapterKeys.length > 0) {
-                chapterKeys.forEach(chId => {
-                    const ch = chaptersObj[chId] || {};
-                    const pagesLen = ch.pages ? ch.pages.length : 0;
-                    chaptersHtml += `
-                        <div class="chapter-row">
-                            <span class="chapter-name">${esc(ch.chapter_title || chId)}<span class="chapter-pages">${pagesLen} pages</span></span>
-                            <button type="button" onclick="promptDelete('chapter', '${safeId}', '${esc(chId)}')" class="icon-btn is-red" title="Delete Chapter">
-                                ${ic('trash')}
-                            </button>
-                        </div>
-                    `;
-                });
-            } else {
-                chaptersHtml = `<div class="chapter-none">No chapters yet.</div>`;
+
+        boxes.forEach(box => {
+            const items = allItems.filter(it => it.node === box.node);
+            box.list.innerHTML = "";
+            if (box.badge) box.badge.textContent = String(items.length);
+            if (items.length === 0) {
+                box.list.innerHTML = `<div class="empty">${ic('folder-open')}${box.empty}</div>`;
+                return;
             }
-            
-            mangaCard.innerHTML = `
-                <div class="manga-main">
-                    <img class="manga-cover" src="${esc(manga.image || manga.cover_image || '')}" alt="${esc(manga.title)}" loading="lazy">
-                    <div class="manga-info">
-                        <span class="manga-title">${esc(manga.title)}</span>
-                        <div class="manga-meta">
-                            <span class="status-text" data-status="${esc(mangaStatus)}">${esc(mangaStatus)}</span>
-                            <span class="dot"></span>
-                            <span class="type">${esc(manga.coverType || 'Manga')}</span>
-                        </div>
-                    </div>
-                    <div class="manga-actions">
-                        <button type="button" onclick="openEditModal('${safeId}', '${esc(mangaStatus)}')" class="icon-btn is-teal" title="Edit Status">
-                            ${ic('pencil')}
-                        </button>
-                        <button type="button" onclick="promptDelete('manga', '${safeId}')" class="icon-btn is-red" title="Delete Manga">
-                            ${ic('trash')}
-                        </button>
-                    </div>
-                </div>
-                <details class="chapters">
-                    <summary>${ic('chevron-right')} Chapters (${chapterKeys.length})</summary>
-                    <div class="chapter-list">
-                        ${chaptersHtml}
-                    </div>
-                </details>
-            `;
-            listContainer.appendChild(mangaCard);
+            items.forEach(({ id, data }) => {
+                const mg = data || {};
+                totalChapters += Object.keys(mg.chapters || {}).length;
+                if ((mg.status || mg.chapter || 'Ongoing') === 'Ongoing') totalOngoing++;
+                box.list.appendChild(buildMangaCard(id, mg));
+            });
         });
+
+        if (countBadge) countBadge.textContent = allItems.length === 0 ? "0 Items" : `${allItems.length} Mangas`;
+        updateStats(allItems.length, totalChapters, totalOngoing);
     } catch (err) {
         console.error("Error fetching managed covers:", err);
     }
@@ -1305,7 +1379,7 @@ window.saveMangaStatus = async function() {
     const mangaId = document.getElementById("editMangaId").value;
     const newStatus = document.getElementById("modalStatusValue").value;
     try {
-        await update(ref(database, `manga_list/${mangaId}`), {
+        await update(ref(database, `${nodeOf(mangaId)}/${mangaId}`), {
             status: newStatus,
             chapter: newStatus
         });
@@ -1339,9 +1413,9 @@ window.confirmDelete = async function() {
     const targetId = document.getElementById("deleteTargetId").value;
     try {
         if (targetType === 'manga') {
-            await remove(ref(database, `manga_list/${parentId}`));
+            await remove(ref(database, `${nodeOf(parentId)}/${parentId}`));
         } else if (targetType === 'chapter') {
-            await remove(ref(database, `manga_list/${parentId}/chapters/${targetId}`));
+            await remove(ref(database, `${nodeOf(parentId)}/${parentId}/chapters/${targetId}`));
         }
         closeDeleteModal();
         renderManagedCovers();
@@ -1399,3 +1473,154 @@ window.addEventListener('DOMContentLoaded', async () => {
     await initDB();
     initSakuraPetals();
 });
+
+
+/* =====================================================================
+   LAYOUT CONTROL  -  size / position of Reze, Makima and the Adult pictures
+   Saved in Firebase "layoutControl" -> { normal:{hero,history}, adult:{hero,history} }, each {size,x,y}
+   Same numbers as the website:  size = % (100 = normal) | x = px (+ right) | y = px (+ down)
+   ===================================================================== */
+const LC_SITE = 'https://tomatomanga.github.io/Sakura-Realm/';        // where reze.webp / makima.webp / adult-*.webp live
+const LC_IMG = { normal: { hero: 'reze.webp', history: 'makima.webp' }, adult: { hero: 'adult-hero.webp', history: 'adult-history.webp' } };
+const LC_DEFAULT = {
+    normal: { hero: { size: 100, x: 0, y: 0 },  history: { size: 100, x: 0, y: 0 } },
+    adult:  { hero: { size: 100, x: 0, y: 14 }, history: { size: 100, x: 0, y: 0 } }      // = the website's built-in adult defaults
+};
+const LC_LIMITS = { size: [20, 300, 1], x: [-500, 500, 1], y: [-500, 500, 1] };          // min, max, step
+const lcClone = (o) => JSON.parse(JSON.stringify(o));
+let lcState = lcClone(LC_DEFAULT);
+let lcMode = 'normal';
+let lcLoaded = false;
+
+const lcClamp = (key, v) => { const [lo, hi] = LC_LIMITS[key]; v = Number(v); if (!isFinite(v)) v = 0; return Math.min(hi, Math.max(lo, Math.round(v * 10) / 10)); };
+
+function lcBuildControls() {
+    document.querySelectorAll('.lc-ctrls').forEach(box => {
+        if (box.dataset.built) return; box.dataset.built = '1';
+        const part = box.dataset.lcPart;
+        const rows = [['size', 'Size %'], ['x', 'Left / Right'], ['y', 'Up / Down']];
+        box.innerHTML = rows.map(([k, label]) => {
+            const [lo, hi, st] = LC_LIMITS[k];
+            return `<div class="lc-row">
+                <label>${label}</label>
+                <button type="button" class="lc-nudge" data-part="${part}" data-key="${k}" data-d="-1">&minus;</button>
+                <input type="range" min="${lo}" max="${hi}" step="${st}" data-part="${part}" data-key="${k}">
+                <button type="button" class="lc-nudge" data-part="${part}" data-key="${k}" data-d="1">+</button>
+                <input type="number" step="0.5" data-part="${part}" data-key="${k}" inputmode="decimal">
+            </div>`;
+        }).join('') + `<button type="button" class="lc-reset" data-reset="${part}">Reset this box</button>`;
+    });
+}
+
+// load a picture from the site, then from the local folder; never leave a broken image on screen
+function lcSetPic(img, file) {
+    if (img.dataset.file === file) return;
+    img.dataset.file = file;
+    const tries = [LC_SITE + file, file];
+    const next = () => {
+        if (img.dataset.file !== file) return;
+        const url = tries.shift();
+        if (!url) { img.style.visibility = 'hidden'; return; }
+        const t = new Image();
+        t.onload = () => { if (img.dataset.file === file) { img.src = url; img.style.visibility = ''; } };
+        t.onerror = next;
+        t.src = url;
+    };
+    next();
+}
+
+function lcRender() {
+    const adult = lcMode === 'adult';
+    document.querySelectorAll('[data-lc-mode]').forEach(b => b.classList.toggle('is-active', b.dataset.lcMode === lcMode));
+    document.getElementById('lcHeroBox').classList.toggle('is-adult', adult);
+    document.getElementById('lcHistBox').classList.toggle('is-adult', adult);
+
+    // --- Home hero: identical formulas to the website CSS ---
+    const h = lcState[lcMode].hero, hp = document.getElementById('lcHeroPic');
+    const hurl = LC_SITE + LC_IMG[lcMode].hero;
+    if (hp.dataset.src !== hurl) { hp.dataset.src = hurl; hp.style.backgroundImage = `url("${hurl}")`; }
+    hp.style.backgroundSize = `auto ${h.size * (adult ? 1.37 : 1)}%`;
+    hp.style.backgroundPosition = `calc(100% + ${h.x}px) ${h.y}px`;
+
+    // --- History: right / bottom / height exactly like the website. Picture follows Normal / Adult ---
+    const m = lcState[lcMode].history, mp = document.getElementById('lcHistPic');
+    lcSetPic(mp, LC_IMG[lcMode].history);
+    document.querySelector('#lcHistBox .lc-hist-name').textContent = adult ? 'Adult history' : 'Nothing read yet';
+    mp.style.right = `calc(${adult ? 5 : -4}px - ${m.x}px)`;
+    mp.style.bottom = `${-m.y}px`;
+    mp.style.height = `${m.size}%`;
+
+    // --- sliders / numbers ---
+    document.querySelectorAll('.lc-ctrls input').forEach(inp => {
+        const v = lcState[lcMode][inp.dataset.part][inp.dataset.key];
+        if (document.activeElement !== inp || inp.type === 'range') inp.value = v;
+    });
+}
+
+function lcSet(part, key, value) {
+    lcState[lcMode][part][key] = lcClamp(key, value);
+    lcRender();
+    const st = document.getElementById('lcStatus'); st.textContent = 'Not saved yet'; st.className = 'lc-status';
+}
+
+window.lcSetMode = (mode) => { lcMode = mode === 'adult' ? 'adult' : 'normal'; lcRender(); };
+
+async function lcOpen() {
+    lcBuildControls(); lcRender();
+    if (lcLoaded) return;
+    const st = document.getElementById('lcStatus'); st.textContent = 'Loading saved layout...'; st.className = 'lc-status';
+    try {
+        const snap = await get(ref(database, 'layoutControl'));
+        const v = snap.exists() ? snap.val() : {};
+        ['normal', 'adult'].forEach(mode => ['hero', 'history'].forEach(part => ['size', 'x', 'y'].forEach(k => {
+            const n = v && v[mode] && v[mode][part] && Number(v[mode][part][k]);
+            if (v && v[mode] && v[mode][part] && isFinite(n)) lcState[mode][part][k] = lcClamp(k, n);
+        })));
+        lcLoaded = true; lcRender(); st.textContent = snap.exists() ? 'Loaded saved layout' : 'No saved layout yet - showing defaults';
+    } catch (e) {
+        st.textContent = 'Could not load saved layout (' + (e && e.code || 'error') + ')'; st.className = 'lc-status is-err';
+    }
+}
+
+window.lcSave = async () => {
+    const btn = document.getElementById('lcSaveBtn'), st = document.getElementById('lcStatus');
+    btn.disabled = true; st.textContent = 'Saving...'; st.className = 'lc-status';
+    try {
+        await set(ref(database, 'layoutControl'), lcClone(lcState));
+        lcLoaded = true;
+        st.textContent = 'Saved - the website updates on next open'; st.className = 'lc-status is-ok';
+    } catch (e) {
+        st.textContent = 'Save failed (' + (e && e.code || 'error') + '). Check the Firebase rules for layoutControl.'; st.className = 'lc-status is-err';
+    } finally { btn.disabled = false; }
+};
+
+// sliders, number boxes, +/- buttons, reset
+document.addEventListener('input', (e) => {
+    const t = e.target; if (!t.closest || !t.closest('.lc-ctrls')) return;
+    lcSet(t.dataset.part, t.dataset.key, t.value);
+});
+document.addEventListener('click', (e) => {
+    const n = e.target.closest && e.target.closest('.lc-nudge');
+    if (n) { const p = n.dataset.part, k = n.dataset.key; lcSet(p, k, lcState[lcMode][p][k] + Number(n.dataset.d)); return; }
+    const r = e.target.closest && e.target.closest('[data-reset]');
+    if (r) { const p = r.dataset.reset; lcState[lcMode][p] = Object.assign({}, LC_DEFAULT[lcMode][p]); lcRender(); }
+});
+
+// drag the picture with finger / mouse
+(function lcDrag() {
+    let drag = null;
+    document.addEventListener('pointerdown', (e) => {
+        const el = e.target.closest && e.target.closest('[data-lc-drag]'); if (!el) return;
+        const part = el.dataset.lcDrag, s = lcState[lcMode][part];
+        drag = { el, part, id: e.pointerId, sx: e.clientX, sy: e.clientY, x0: s.x, y0: s.y };
+        try { el.setPointerCapture(e.pointerId); } catch (_) {}
+        el.classList.add('lc-dragging'); e.preventDefault();
+    });
+    document.addEventListener('pointermove', (e) => {
+        if (!drag || e.pointerId !== drag.id) return;
+        lcSet(drag.part, 'x', drag.x0 + (e.clientX - drag.sx));
+        lcSet(drag.part, 'y', drag.y0 + (e.clientY - drag.sy));
+    });
+    const end = (e) => { if (drag && e.pointerId === drag.id) { drag.el.classList.remove('lc-dragging'); drag = null; } };
+    document.addEventListener('pointerup', end); document.addEventListener('pointercancel', end);
+})();
