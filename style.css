@@ -936,3 +936,62 @@ input:-webkit-autofill:focus {
 }
 /* Firefox / standard */
 input:autofill { box-shadow: 0 0 0 1000px #101c1d inset !important; -webkit-text-fill-color: var(--text) !important; }
+
+
+/* ---------- Layout Control tab ---------- */
+.tabs { grid-template-columns: repeat(3, 1fr); }
+@media (max-width: 420px) { .tab { font-size: 11px; padding: 0 4px; gap: 4px; } .tab .ic { display: none; } }
+
+.lc-seg { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; padding: 3px; background: #070f10; border-radius: 11px; box-shadow: inset 0 0 0 1px var(--line); }
+.lc-seg-btn { height: 34px; border: 0; border-radius: 8px; background: none; color: var(--muted); font-size: 12.5px; font-weight: 700; cursor: pointer; transition: all 0.18s; }
+.lc-seg-btn.is-active { color: var(--teal-200); background: rgba(45, 212, 191, 0.14); box-shadow: inset 0 0 0 1px rgba(94, 234, 212, 0.3); }
+.lc-seg-btn[data-lc-mode="adult"].is-active { color: #ffc2d6; background: rgba(224, 69, 123, 0.16); box-shadow: inset 0 0 0 1px rgba(255, 150, 185, 0.35); }
+.lc-hint { font-size: 11.5px; color: var(--muted); line-height: 1.6; }
+.lc-status { min-height: 16px; font-size: 12px; color: var(--muted); text-align: center; }
+.lc-status.is-ok { color: var(--teal-300); } .lc-status.is-err { color: var(--red); }
+
+/* Home hero preview - same geometry as the website (picture box = left half, cut by the diagonal seam) */
+.lc-hero { position: relative; width: 100%; max-width: 560px; margin: 0 auto; height: clamp(238px, 66vw, 284px); border-radius: 24px; overflow: hidden;
+    background: linear-gradient(160deg, #1b1237 0%, #281a52 55%, #151a44 100%); box-shadow: 0 0 0 1px var(--line-strong); }
+.lc-hero-left { position: absolute; inset: 0; clip-path: polygon(0 0, 50% 0, 39% 100%, 0 100%); background: linear-gradient(150deg, #2dd4bf 0%, #14b8a6 46%, #0d9488 100%); }
+.lc-hero.is-adult .lc-hero-left { background: linear-gradient(150deg, #e0457b 0%, #b8265f 46%, #7d1745 100%); }
+.lc-hero-pic { position: absolute; top: 0; bottom: 0; left: 0; width: 50%; background-repeat: no-repeat; touch-action: none; cursor: grab; filter: drop-shadow(0 10px 12px rgba(0,0,0,0.35)); }
+.lc-hero-right { position: absolute; top: 0; bottom: 0; right: 0; width: 46%; display: flex; align-items: center; justify-content: center; color: rgba(255,255,255,0.35); font-size: 11px; font-weight: 800; letter-spacing: 0.14em; pointer-events: none; }
+.lc-hero-left::after { content: ""; position: absolute; inset: 0; pointer-events: none; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.18); }
+
+/* History preview - same height as the website card (276px) */
+.lc-hist { position: relative; width: 100%; max-width: 520px; margin: 0 auto; height: 276px; border-radius: 24px; overflow: hidden; isolation: isolate;
+    background: linear-gradient(112deg, #0a0e10 0%, #0d1214 42%, #1a0a0d 78%, #2a0c10 100%); box-shadow: 0 0 0 1px var(--line-strong); }
+.lc-hist.is-adult { background: linear-gradient(112deg, #120a16 0%, #1a0d1f 42%, #26102a 78%, #35123a 100%); }
+.lc-hist-info { position: relative; z-index: 1; width: 62%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 13px; pointer-events: none; }
+.lc-hist-cover { width: 112px; height: 164px; border-radius: 13px; border: 1px dashed rgba(255,255,255,0.25); background: rgba(255,255,255,0.04); }
+.lc-hist-name { font-size: 12px; color: var(--muted); }
+.lc-hist-pic { position: absolute; z-index: 2; width: auto; max-width: none; object-fit: contain; object-position: right bottom; touch-action: none; cursor: grab; user-select: none; -webkit-user-drag: none; }
+.lc-dragging { cursor: grabbing !important; }
+
+/* sliders */
+.lc-ctrls { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.lc-row { display: grid; grid-template-columns: 54px 30px 1fr 30px 62px; gap: 6px; align-items: center; }
+.lc-row > label { font-size: 11.5px; font-weight: 700; color: var(--muted); }
+.lc-row input[type="range"] { width: 100%; accent-color: var(--teal-400); min-width: 0; }
+.lc-row input[type="number"] { width: 100%; min-width: 0; height: 30px; padding: 0 6px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--field); color: var(--text); font-size: 12px; text-align: center; }
+.lc-nudge { height: 30px; border: 0; border-radius: 8px; background: var(--field); color: var(--text); font-size: 16px; font-weight: 700; cursor: pointer; box-shadow: inset 0 0 0 1px var(--line-strong); }
+.lc-nudge:active { transform: scale(0.94); }
+.lc-reset { align-self: flex-end; height: 30px; padding: 0 12px; border: 0; border-radius: 8px; background: transparent; color: var(--muted); font-size: 11.5px; font-weight: 700; cursor: pointer; box-shadow: inset 0 0 0 1px var(--line-strong); }
+.lc-reset:hover { color: var(--text); }
+
+
+/* ---------- Library: Normal box + Adult box ---------- */
+.lib-boxes { display: flex; flex-direction: column; gap: 14px; }
+.lib-box { padding: 12px; border-radius: 16px; background: linear-gradient(180deg, rgba(45,212,191,0.06), rgba(45,212,191,0.015)); box-shadow: inset 0 0 0 1px rgba(94,234,212,0.2); }
+.lib-box.is-adult { background: linear-gradient(180deg, rgba(224,69,123,0.09), rgba(224,69,123,0.02)); box-shadow: inset 0 0 0 1px rgba(255,150,185,0.28); }
+.lib-box-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.lib-box-head > div { flex: 1; min-width: 0; }
+.lib-box-head h3 { font-size: 13.5px; font-weight: 800; color: #fff; display: flex; align-items: center; gap: 6px; }
+.lib-box-head h3 em { font-style: normal; font-size: 9.5px; font-weight: 800; letter-spacing: 0.04em; padding: 1px 7px; border-radius: 999px; color: #ffc2d6; background: rgba(224,69,123,0.2); box-shadow: inset 0 0 0 1px rgba(255,150,185,0.35); }
+.lib-box-head p { font-size: 11px; color: var(--muted); margin-top: 1px; }
+.lib-box-ico { width: 30px; height: 30px; flex-shrink: 0; display: inline-grid; place-items: center; border-radius: 9px; color: var(--teal-200); background: rgba(45,212,191,0.12); box-shadow: inset 0 0 0 1px rgba(94,234,212,0.28); }
+.lib-box.is-adult .lib-box-ico { color: #ffc2d6; background: rgba(224,69,123,0.16); box-shadow: inset 0 0 0 1px rgba(255,150,185,0.35); }
+.lib-box.is-adult .badge { color: #ffc2d6; background: rgba(224,69,123,0.14); box-shadow: inset 0 0 0 1px rgba(255,150,185,0.3); }
+.lib-box .library { max-height: 360px; }
+@media (min-width: 900px) { .card-library { max-height: calc(100vh - 90px); overflow-y: auto; } }
