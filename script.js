@@ -1,6 +1,7 @@
 // --- SAKURA REALM: CLOUDINARY & FIREBASE UPLOADER ENGINE ---
 import { initializeApp } from "https://www.gstatic.com/firebasejs/13.0.0/firebase-app.js";
 import { getDatabase, ref, set, get, update, remove, child } from "https://www.gstatic.com/firebasejs/13.0.0/firebase-database.js";
+import { createUserWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/13.0.0/firebase-auth.js";
 import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, setPersistence, browserLocalPersistence, browserSessionPersistence } from "https://www.gstatic.com/firebasejs/13.0.0/firebase-auth.js";
 
 const firebaseConfig = {
@@ -20,8 +21,35 @@ const database = getDatabase(app);
 const auth = getAuth(app);
 
 // Cloudinary Configuration Constants
-const CLOUD_NAME = "dxbelpram";
-const UPLOAD_PRESET = "sakura_uploads_1"; 
+// Cloudinary accounts: "cloud name": "unsigned upload preset".
+// To add an account just add one line here. Names ("Account 1", "Account 2", ...),
+// colours and the dropdowns are made automatically from the order of this list.
+const CLOUD_ACCOUNTS = {
+    "dxbelpram": "sakura_uploads_1",
+    "des4futwk": "sakura_uploads_2",
+    "fr6tdunm": "sakura_uploads_3",
+    "duez2cni": "sakura_uploads_4", 
+};
+const CLOUD_IDS = Object.keys(CLOUD_ACCOUNTS);
+// Which Cloudinary account an image URL belongs to (the cloud name is inside the URL)
+function cloudFromUrl(u) {
+    try {
+        const url = new URL(String(u));
+        return url.hostname === "res.cloudinary.com" ? (url.pathname.split("/").filter(Boolean)[0] || "") : "";
+    } catch (_) { return ""; }
+}
+// Shown name: only "Account N" (never the cloud name / keys). Unknown clouds -> "Other".
+const cloudLabel = (cloud) => { const i = CLOUD_IDS.indexOf(cloud); return i >= 0 ? "Account " + (i + 1) : "Other"; };
+// Small coloured tag: "Account 2" (colour is generated per account, works for any number of accounts)
+function cloudTag(cloud) {
+    if (!cloud) return "";
+    const i = CLOUD_IDS.indexOf(cloud);
+    const hue = i >= 0 ? (170 + i * 137) % 360 : 215;
+    return `<span class="cloud-tag" style="--h:${hue}">${esc(cloudLabel(cloud))}</span>`;
+}
+// Address of the Cloudflare Worker that deletes images from Cloudinary (see cloudinary-cleaner/README).
+// Leave "" to keep the old behaviour (delete from Firebase only, Cloudinary images stay).
+const CLEANER_URL = "https://sakura-cloudinary-cleaner.sawzinminkhand321.workers.dev";
 
 // Local IndexedDB for temporary gallery staging
 const DB_NAME = "SakuraRealmUploaderDB";
@@ -401,14 +429,14 @@ window.cancelCurrentJob = async function() {
 };
 
 // Upload file directly to Cloudinary (Unsigned Upload) - XHR so we get REAL byte progress
-function uploadToCloudinaryOnce(fileOrDataUrl, onProgress, job) {
+function uploadToCloudinaryOnce(fileOrDataUrl, onProgress, job, cloud) {
     return new Promise((resolve, reject) => {
         const formData = new FormData();
         if (typeof fileOrDataUrl === "string") formData.append("file", fileOrDataUrl);
         else formData.append("file", fileOrDataUrl, "page.webp");
-        formData.append("upload_preset", UPLOAD_PRESET);
+        formData.append("upload_preset", CLOUD_ACCOUNTS[cloud]);
         const xhr = new XMLHttpRequest();
-        xhr.open("POST", `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/image/upload`);
+        xhr.open("POST", `https://api.cloudinary.com/v1_1/${cloud}/image/upload`);
         if (job) job.xhrs.add(xhr);
         const done = () => { if (job) job.xhrs.delete(xhr); };
         xhr.upload.onprogress = (e) => {
@@ -433,13 +461,14 @@ function uploadToCloudinaryOnce(fileOrDataUrl, onProgress, job) {
 }
 
 // Retries up to 2 extra times so one flaky request doesn't kill the whole chapter
-async function uploadToCloudinary(fileOrDataUrl, onProgress, retries = 2, job = null) {
+async function uploadToCloudinary(fileOrDataUrl, onProgress, retries = 2, job = null, cloud = CLOUD_IDS[0]) {
+    if (!CLOUD_ACCOUNTS[cloud]) throw new Error("Unknown Cloudinary account: " + cloud);
     let lastErr;
     for (let attempt = 0; attempt <= retries; attempt++) {
         if (job && job.cancelled) throw cancelError();
         try {
             if (onProgress) onProgress(0);
-            return await uploadToCloudinaryOnce(fileOrDataUrl, onProgress, job);
+            return await uploadToCloudinaryOnce(fileOrDataUrl, onProgress, job, cloud);
         } catch (err) {
             if (isCancel(err) || (job && job.cancelled)) throw cancelError();
             lastErr = err;
@@ -555,6 +584,68 @@ document.addEventListener("click", (e) => {
     }
 });
 
+// --- Library: show the Normal box OR the Adult box ---
+let libMode = "normal";
+try { if (localStorage.getItem("sakura_lib_mode") === "adult") libMode = "adult"; } catch (e) {}
+window.switchLib = function(mode) {
+    libMode = mode === "adult" ? "adult" : "normal";
+    try { localStorage.setItem("sakura_lib_mode", libMode); } catch (e) {}
+    document.getElementById("libBoxNormal").classList.toggle("hidden", libMode !== "normal");
+    document.getElementById("libBoxAdult").classList.toggle("hidden", libMode !== "adult");
+    document.getElementById("btnLibNormal").classList.toggle("is-active", libMode === "normal");
+    document.getElementById("btnLibAdult").classList.toggle("is-active", libMode === "adult");
+};
+switchLib(libMode);
+
+// --- Cloudinary account pickers (one for the cover form, one for the chapter form) ---
+const cloudChoice = { cover: CLOUD_IDS[0], chapter: CLOUD_IDS[0] };
+(function () {
+    ["cover", "chapter"].forEach(kind => {
+        try { const saved = localStorage.getItem("sakura_cloud_" + kind); if (saved && CLOUD_ACCOUNTS[saved]) cloudChoice[kind] = saved; } catch (e) {}
+    });
+})();
+const currentCloud = (kind) => cloudChoice[kind];
+function renderCloudMenu(kind) {
+    const menu = document.getElementById(kind + "CloudMenu");
+    const text = document.getElementById(kind + "CloudText");
+    if (!menu || !text) return;
+    menu.innerHTML = CLOUD_IDS.map(cloud =>
+        `<div class="select-option${cloud === cloudChoice[kind] ? " is-current" : ""}" data-value="${esc(cloud)}" onclick="selectCloud('${kind}','${esc(cloud)}')">${esc(cloudLabel(cloud))}</div>`
+    ).join("");
+    text.textContent = cloudLabel(cloudChoice[kind]);
+}
+window.selectCloud = function(kind, cloud) {
+    if (!CLOUD_ACCOUNTS[cloud]) return;
+    cloudChoice[kind] = cloud;
+    try { localStorage.setItem("sakura_cloud_" + kind, cloud); } catch (e) {}
+    renderCloudMenu(kind);
+    document.getElementById(kind + "CloudMenu").classList.add("hidden");
+    document.getElementById(kind + "CloudTrigger").classList.remove("is-open");
+};
+window.toggleCloudMenu = function(kind) {
+    const menu = document.getElementById(kind + "CloudMenu");
+    const opening = menu.classList.contains("hidden");
+    ["uploadSpeedMenu", "compressMenu", "coverCloudMenu", "chapterCloudMenu"].forEach(id => {
+        const m = document.getElementById(id), t = document.getElementById(id.replace("Menu", "Trigger"));
+        if (m) m.classList.add("hidden");
+        if (t) t.classList.remove("is-open");
+    });
+    menu.classList.toggle("hidden", !opening);
+    document.getElementById(kind + "CloudTrigger").classList.toggle("is-open", opening);
+};
+document.addEventListener("click", (e) => {
+    ["cover", "chapter"].forEach(kind => {
+        if (!e.target.closest("#" + kind + "CloudWrap")) {
+            const m = document.getElementById(kind + "CloudMenu");
+            const t = document.getElementById(kind + "CloudTrigger");
+            if (m) m.classList.add("hidden");
+            if (t) t.classList.remove("is-open");
+        }
+    });
+});
+renderCloudMenu("cover");
+renderCloudMenu("chapter");
+
 // --- Progress helper: uses the bar inside the gallery modal when it is open, otherwise the form bar ---
 function getProgressUI() {
     const modalOpen = !document.getElementById("sakuraGalleryModal").classList.contains("hidden");
@@ -608,6 +699,12 @@ async function readAllMangaNodes() {
     return out;
 }
 const nodeOf = (id) => mangaNodeById[id] || MAIN_NODE;
+let chapterPriceMap = {};   // chapterPrices from Data B: "mangaId__chapterId" -> coins
+const priceKey = (m, c) => String(m + "__" + c).replace(/[.#$\[\]\/]/g, "_");
+async function loadChapterPrices() {
+    try { const s = await get(ref(dbB, "chapterPrices")); chapterPriceMap = s.exists() ? (s.val() || {}) : {}; }
+    catch (e) { chapterPriceMap = chapterPriceMap || {}; }
+}
 
 let mangaPickData = [];
 
@@ -1132,7 +1229,8 @@ window.handleMangaUpload = async function(event) {
     submitBtn.disabled = true;
     submitBtn.innerHTML = `${ic('loader','ic-spin')} Uploading...`;
     try {
-        const coverImageUrl = await uploadToCloudinary(imageFile);
+        const coverCloud = currentCloud("cover");
+        const coverImageUrl = await uploadToCloudinary(imageFile, null, 2, null, coverCloud);
         const mangaId = 'manga-' + Date.now();
         
         const newMangaData = {
@@ -1145,6 +1243,7 @@ window.handleMangaUpload = async function(event) {
             rating: rating,
             description: description,
             image: coverImageUrl,
+            cloud: coverCloud,
             chapters: {}
         };
         
@@ -1180,6 +1279,10 @@ window.handleChapterUpload = async function(event) {
     
     if (!mangaId) { await uiAlert("Please select a manga.", { title: "Select a manga" }); return; }
     if (!chapterTitle) { await uiAlert("Please enter a chapter name or number.", { title: "Chapter name needed" }); return; }
+    const coinsInputEl = document.getElementById("chapterCoinsInput");
+    const chapterCoins = coinsInputEl && coinsInputEl.value.trim() !== "" ? Math.floor(Number(coinsInputEl.value)) : 0;
+    if (!isFinite(chapterCoins) || chapterCoins < 0) { await uiAlert("Coins must be 0 or a positive number.", { title: "Invalid coins" }); return; }
+    if (chapterCoins > 0 && !authBAdmin.currentUser) { await uiAlert("The coins list is saved in Project B. Open User Accounts Manage and sign in to B first, then upload again.", { title: "Sign in to B first" }); return; }
     if (finalSelectedChapterImages.length === 0) { await uiAlert("Please select chapter images first.", { title: "No images selected" }); return; }
     
     submitBtn.disabled = true;
@@ -1188,6 +1291,7 @@ window.handleChapterUpload = async function(event) {
     const total = finalSelectedChapterImages.length;
     const batchSize = Math.max(1, uploadBatchSize);
     const mode = compressMode;
+    const chapterCloud = currentCloud("chapter");
     let bytesBefore = 0, bytesAfter = 0;
     ui.show(`Uploading to Cloudinary (0/${total})...`, 0);
 
@@ -1209,7 +1313,7 @@ window.handleChapterUpload = async function(event) {
                 if (job.cancelled) throw cancelError();
                 bytesBefore += packed.before;
                 bytesAfter += packed.after;
-                uploadedPagesUrls[idx] = await uploadToCloudinary(packed.file, null, 2, job);
+                uploadedPagesUrls[idx] = await uploadToCloudinary(packed.file, null, 2, job, chapterCloud);
                 doneCount++;
                 refresh();
             }));
@@ -1224,12 +1328,16 @@ window.handleChapterUpload = async function(event) {
             chapter_number: chapterTitle,
             chapter_title: chapterTitle,
             created_at: Date.now(),
+            cloud: chapterCloud,
             pages: uploadedPagesUrls
         };
+        // locked chapter: the price goes to the coins list in Firebase B (saved BEFORE the chapter so it can never appear free)
+        if (chapterCoins > 0) await set(ref(dbB, "chapterPrices/" + String(mangaId + "__" + chapterId).replace(/[.#$\[\]\/]/g, "_")), chapterCoins);
         
         await set(ref(database, `${nodeOf(mangaId)}/${mangaId}/chapters/${chapterId}`), newChapterData);
         
         if (chapterTitleInput) chapterTitleInput.value = "";
+        if (coinsInputEl) coinsInputEl.value = "";
         if (mangaSelectEl) mangaSelectEl.selectedIndex = 0;
         
         finalSelectedChapterImages = [];
@@ -1273,6 +1381,7 @@ function updateStats(mangas, chapters, ongoing) {
 
 // --- RENDER MANAGED COVERS FROM FIREBASE ---
 // The Library is split in two boxes:  Normal (manga_list)  and  Adult (adult_list)
+const coinsOfCh = (m, c) => Math.max(0, Math.floor(Number(chapterPriceMap[priceKey(m, c)]) || 0));
 function buildMangaCard(mangaId, manga) {
     const mangaCard = document.createElement("div");
     mangaCard.className = "manga";
@@ -1289,7 +1398,7 @@ function buildMangaCard(mangaId, manga) {
             const pagesLen = ch.pages ? ch.pages.length : 0;
             chaptersHtml += `
                 <div class="chapter-row">
-                    <span class="chapter-name">${esc(ch.chapter_title || chId)}<span class="chapter-pages">${pagesLen} pages</span></span>
+                    <span class="chapter-name"><span class="chapter-title">${esc(ch.chapter_title || "Chapter")}</span><span class="chapter-tags"><span class="chapter-pages">${pagesLen} pages</span>${cloudTag(ch.cloud || cloudFromUrl(ch.pages && ch.pages[0]))}${coinsOfCh(mangaId, chId) > 0 ? `<span class="chapter-coin" title="Locked: ${coinsOfCh(mangaId, chId)} coins">${ic("coins")}${coinsOfCh(mangaId, chId)}</span>` : ""}</span></span>
                     <button type="button" onclick="promptDelete('chapter', '${safeId}', '${esc(chId)}')" class="icon-btn is-red" title="Delete Chapter">
                         ${ic('trash')}
                     </button>
@@ -1309,15 +1418,19 @@ function buildMangaCard(mangaId, manga) {
                     <span class="status-text" data-status="${esc(mangaStatus)}">${esc(mangaStatus)}</span>
                     <span class="dot"></span>
                     <span class="type">${esc(manga.coverType || 'Manga')}</span>
+                    <span class="cloud-inline">${cloudTag(manga.cloud || cloudFromUrl(manga.image || manga.cover_image))}</span>
                 </div>
             </div>
-            <div class="manga-actions">
+            <div class="manga-side">
+              <div class="cloud-top">${cloudTag(manga.cloud || cloudFromUrl(manga.image || manga.cover_image))}</div>
+              <div class="manga-actions">
                 <button type="button" onclick="openEditModal('${safeId}', '${esc(mangaStatus)}')" class="icon-btn is-teal" title="Edit Status">
                     ${ic('pencil')}
                 </button>
                 <button type="button" onclick="promptDelete('manga', '${safeId}')" class="icon-btn is-red" title="Delete Manga">
                     ${ic('trash')}
                 </button>
+              </div>
             </div>
         </div>
         <details class="chapters">
@@ -1339,8 +1452,10 @@ async function renderManagedCovers() {
     const countBadge = document.getElementById("totalUploadsCount");
 
     try {
+        await loadChapterPrices();
         const allItems = await readAllMangaNodes();
         let totalChapters = 0, totalOngoing = 0;
+        renderCoinHistory(allItems);
 
         boxes.forEach(box => {
             const items = allItems.filter(it => it.node === box.node);
@@ -1400,27 +1515,148 @@ window.promptDelete = function(targetType, parentId, targetId = '') {
     } else {
         descEl.textContent = "Are you sure you want to delete this chapter from Firebase?";
     }
+    delReset();
     document.getElementById("deleteConfirmModal").classList.remove("hidden");
 }
 
+let delBusy = false;
 window.closeDeleteModal = function() {
+    if (delBusy) return;   // can't close while deleting
     document.getElementById("deleteConfirmModal").classList.add("hidden");
 }
 
+// --- Delete progress UI (Cloudinary -> Firebase) ---
+function delReset() {
+    delBusy = false;
+    const box = document.getElementById("delProgress");
+    box.classList.add("hidden");
+    box.classList.remove("is-error", "is-done");
+    delSetStep("delStepCloud", "", "");
+    delSetStep("delStepFb", "", "");
+    delSetBar(0, "Starting...");
+    document.getElementById("deleteModalDesc").classList.remove("hidden");
+    const ok = document.getElementById("delConfirmBtn"), no = document.getElementById("delCancelBtn");
+    ok.disabled = false; no.disabled = false; no.classList.remove("hidden");
+    ok.innerHTML = `${ic("trash")} Delete`;
+}
+function delSetStep(id, state, countText) {
+    const el = document.getElementById(id);
+    el.className = "del-step" + (state ? " is-" + state : "");
+    const icons = { active: ic("loader", "ic-spin"), done: ic("check-circle"), error: ic("alert-circle"), skip: "" };
+    el.querySelector(".del-ico").innerHTML = icons[state] || "";
+    el.querySelector(".del-count").textContent = countText || "";
+}
+function delSetBar(pct, text) {
+    const p = Math.max(0, Math.min(100, Math.round(pct)));
+    document.getElementById("delBar").style.width = p + "%";
+    document.getElementById("delPercent").textContent = p + "%";
+    if (text) document.getElementById("delStatusText").textContent = text;
+}
+
+// Every Cloudinary image that belongs to a manga (cover + all chapter pages) or to one chapter
+function collectImageUrls(targetType, node) {
+    const urls = [];
+    if (!node) return urls;
+    const addChapter = (ch) => { if (ch && Array.isArray(ch.pages)) ch.pages.forEach(u => { if (typeof u === "string") urls.push(u); }); };
+    if (targetType === "manga") {
+        if (typeof node.image === "string") urls.push(node.image);
+        if (typeof node.cover_image === "string") urls.push(node.cover_image);
+        Object.values(node.chapters || {}).forEach(addChapter);
+    } else {
+        addChapter(node);
+    }
+    return urls;
+}
+
+// Ask the Worker to delete these images from Cloudinary (in small batches so we can show real progress).
+// Throws if anything could not be deleted.
+const CLEAN_BATCH = 10;
+async function deleteImagesFromCloudinary(urls, onProgress) {
+    if (!CLEANER_URL || urls.length === 0) return;
+    const user = auth.currentUser;
+    if (!user) throw new Error("Please sign in again.");
+    let done = 0;
+    for (let i = 0; i < urls.length; i += CLEAN_BATCH) {
+        const batch = urls.slice(i, i + CLEAN_BATCH);
+        const token = await user.getIdToken();   // cached; refreshes automatically when needed
+        let res, data = {};
+        try {
+            res = await fetch(CLEANER_URL, {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
+                body: JSON.stringify({ urls: batch })
+            });
+        } catch (e) { throw new Error("Cannot reach the Cloudinary cleaner (network)."); }
+        try { data = await res.json(); } catch (_) {}
+        if (!res.ok || !data.ok) throw new Error(data.error || ("Cloudinary cleaner error " + res.status));
+        done += batch.length;
+        if (onProgress) onProgress(done, urls.length);
+    }
+}
+
 window.confirmDelete = async function() {
+    if (delBusy) return;
     const targetType = document.getElementById("deleteTargetType").value;
     const parentId = document.getElementById("deleteTargetParentId").value;
     const targetId = document.getElementById("deleteTargetId").value;
+    const path = targetType === 'manga'
+        ? `${nodeOf(parentId)}/${parentId}`
+        : `${nodeOf(parentId)}/${parentId}/chapters/${targetId}`;
+
+    // lock the dialog + show progress
+    delBusy = true;
+    const box = document.getElementById("delProgress");
+    const okBtn = document.getElementById("delConfirmBtn"), noBtn = document.getElementById("delCancelBtn");
+    box.classList.remove("hidden", "is-error", "is-done");
+    document.getElementById("deleteModalDesc").classList.add("hidden");
+    okBtn.disabled = true; noBtn.disabled = true;
+    okBtn.innerHTML = `${ic("loader", "ic-spin")} Deleting...`;
+
+    let stage = "cloud";
     try {
-        if (targetType === 'manga') {
-            await remove(ref(database, `${nodeOf(parentId)}/${parentId}`));
-        } else if (targetType === 'chapter') {
-            await remove(ref(database, `${nodeOf(parentId)}/${parentId}/chapters/${targetId}`));
+        // 1) Cloudinary first: if it fails we stop, so Firebase still points to the images and you can retry.
+        let urls = [];
+        if (CLEANER_URL) {
+            delSetStep("delStepCloud", "active", "");
+            delSetStep("delStepFb", "", "");
+            delSetBar(2, "Reading item...");
+            const snap = await get(ref(database, path));
+            urls = collectImageUrls(targetType, snap.val());
         }
+        if (CLEANER_URL && urls.length > 0) {
+            delSetBar(5, `Deleting from Cloudinary (0/${urls.length})...`);
+            delSetStep("delStepCloud", "active", `0/${urls.length}`);
+            await deleteImagesFromCloudinary(urls, (d, t) => {
+                delSetStep("delStepCloud", "active", `${d}/${t}`);
+                delSetBar(5 + (d / t) * 85, `Deleting from Cloudinary (${d}/${t})...`);
+            });
+            delSetStep("delStepCloud", "done", `${urls.length}/${urls.length}`);
+        } else {
+            delSetStep("delStepCloud", "skip", CLEANER_URL ? "no images" : "skipped");
+        }
+
+        // 2) then remove from Firebase
+        stage = "firebase";
+        delSetStep("delStepFb", "active", "");
+        delSetBar(92, "Deleting from Firebase...");
+        await remove(ref(database, path));
+        delSetStep("delStepFb", "done", "");
+        box.classList.add("is-done");
+        delSetBar(100, "Deleted successfully");
+        okBtn.innerHTML = `${ic("check-circle")} Done`;
+
+        await new Promise(r => setTimeout(r, 900));
+        delBusy = false;
         closeDeleteModal();
         renderManagedCovers();
     } catch (err) {
-        uiAlert("Error deleting item: " + err.message);
+        delBusy = false;
+        box.classList.add("is-error");
+        delSetStep(stage === "cloud" ? "delStepCloud" : "delStepFb", "error", "failed");
+        document.getElementById("delStatusText").textContent =
+            (stage === "cloud" ? "Cloudinary delete failed - nothing removed from Firebase. " : "Firebase delete failed. ") + (err.message || "");
+        okBtn.disabled = false; noBtn.disabled = false;
+        okBtn.innerHTML = `${ic("trash")} Retry`;
     }
 }
 
@@ -1624,3 +1860,312 @@ document.addEventListener('click', (e) => {
     const end = (e) => { if (drag && e.pointerId === drag.id) { drag.el.classList.remove('lc-dragging'); drag = null; } };
     document.addEventListener('pointerup', end); document.addEventListener('pointercancel', end);
 })();
+
+// =====================================================================
+// USER ACCOUNTS MANAGE (Firebase project B)
+// Auth (B)            : email + password login (Firebase keeps the real password hash)
+// B DB users/{uid}    : { email, active, createdAt }   (profile only)
+// B DB coinAccounts/{uid} : { coins }                        <- Coins accounts only
+// B DB paidAccounts/{uid} : { days, startedAt }              <- Paid accounts only (days only: 1 month = 30 days; days 0 = No active)
+// B DB userSecrets/{uid} : { password }  (ENCRYPTED, admin-only; the database never shows the real password, the Uploader decrypts it for you)
+// =====================================================================
+const firebaseConfigB = {
+  apiKey: "AIzaSyD2D-QH6R-90PTn5mN0OG4QHLT8cCoJaBA",
+  authDomain: "sakura-realm-user.firebaseapp.com",
+  databaseURL: "https://sakura-realm-user-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "sakura-realm-user",
+  storageBucket: "sakura-realm-user.firebasestorage.app",
+  messagingSenderId: "685194449190",
+  appId: "1:685194449190:web:ac83e1db140662bc5171e7"
+};
+const appBAdmin = initializeApp(firebaseConfigB, "bAdmin");     // signed in as the B admin
+const authBAdmin = getAuth(appBAdmin);
+const dbB = getDatabase(appBAdmin);
+const appBCreate = initializeApp(firebaseConfigB, "bCreate");   // only creates accounts, then signs out
+const authBCreate = getAuth(appBCreate);
+
+const UM_MONTHS = [[1, "1 Month"], [2, "2 Months"], [3, "3 Months"], [5, "5 Months"], [12, "1 Year"]];
+const umEl = (id) => document.getElementById(id);
+const umEsc = (v) => String(v == null ? "" : v).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+let umToastT = null;
+// bottom toast: tells what was just done (icon + short title + detail), slides up from the bottom
+function umToast(title, detail, kind, icon) {
+    const el = umEl("umToast"); if (!el || !title) return;
+    el.className = "um-toast " + (kind || "ok");
+    el.innerHTML = `<span class="um-toast-ico">${umIcon(icon || (kind === "bad" ? "alert-circle" : "check-circle"))}</span><span class="um-toast-txt"><b>${umEsc(title)}</b>${detail ? `<small>${umEsc(detail)}</small>` : ""}</span>`;
+    void el.offsetWidth; el.classList.add("show");
+    clearTimeout(umToastT); umToastT = setTimeout(() => el.classList.remove("show"), 3600);
+}
+const umSay = (t, bad, icon, detail) => { if (t) umToast(t, detail, bad ? "bad" : "ok", icon); };
+const umIcon = (n) => `<svg class="ic" aria-hidden="true"><use href="#i-${n}"/></svg>`;
+const umPlanText = (p) => p.type === "coins" ? p.coins + " coins" : "Paid · " + p.days + " days";
+const umMonthLabel = (m) => (UM_MONTHS.find(x => x[0] === m) || [m, m + " Months"])[1];
+const umDate = (ms) => new Date(ms).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+const UM_DAYS_PER_MONTH = 30;   // 1 month = 30 days (saved in Data B)
+const umDays = (months) => months * UM_DAYS_PER_MONTH;
+// Paid plan in Data B is saved as DAYS only: paidAccounts/{uid} = { days, startedAt }.  Days left = days - elapsed (0 => "No active").
+const umPaidInfo = (p, createdAt) => {
+    let days = 0, exp = 0;
+    if (p && p.days !== undefined && p.days !== null) {
+        days = Math.max(0, Number(p.days) || 0);
+        const st = Number(p.startedAt) || (p.expiresAt ? Number(p.expiresAt) - (Number(p.months) ? Number(p.months) * 30 : days) * 86400000 : 0) || Number(createdAt) || Date.now();
+        exp = st + days * 86400000;
+    } else if (p) { exp = Number(p.expiresAt) || 0; days = Number(p.months) ? Number(p.months) * 30 : 0; }   // old accounts (months + expiresAt)
+    const left = Math.max(0, Math.ceil((exp - Date.now()) / 86400000));
+    return { days, exp, left, active: exp > Date.now() };
+};
+
+window.umSetOpen = function (open) {
+    document.querySelector(".layout").classList.toggle("um-open", open);
+    umEl("umSwitchA").classList.toggle("is-on", open);
+    umEl("umSwitchA").setAttribute("aria-pressed", String(open));
+    window.scrollTo({ top: 0, behavior: "smooth" });
+};
+
+// ---- plan picker (Coins / Paid) shared by "New account" and "Manage plan" ----
+function umPicker(box, st) {
+    const draw = () => {
+        box.innerHTML = `
+          <div class="um-seg"><button type="button" data-t="coins" class="${st.type === "coins" ? "on" : ""}">${umIcon("coins")} Coins</button><button type="button" data-t="paid" class="${st.type === "paid" ? "on" : ""}">${umIcon("crown")} Paid</button></div>
+          <div class="um-pick-body">${st.type === "coins"
+            ? `<label class="um-field is-gold">${umIcon("coins")}<input type="number" min="0" step="1" inputmode="numeric" data-coins placeholder="How many coins?" value="${umEsc(st.coins)}"></label>`
+            : `<div class="um-months">${UM_MONTHS.map(([m, l]) => `<button type="button" data-m="${m}" class="${st.months === m ? "on" : ""}"><b>${l}</b><small>${m * 30} days</small></button>`).join("")}</div>`}</div>`;
+    };
+    box.onclick = (e) => {
+        const t = e.target.closest("[data-t]"), m = e.target.closest("[data-m]");
+        if (t) { st.type = t.dataset.t; draw(); }
+        if (m) { st.months = Number(m.dataset.m); draw(); }
+    };
+    box.oninput = (e) => { if (e.target.matches("[data-coins]")) st.coins = e.target.value; };
+    draw();
+}
+function umPlanFrom(st) {
+    if (st.type === "coins") {
+        const n = Math.floor(Number(st.coins));
+        if (st.coins === "" || !isFinite(n) || n < 0) return null;
+        return { type: "coins", coins: n };
+    }
+    if (!st.months) return null;
+    return { type: "paid", days: umDays(st.months) };
+}
+const umCreatePick = { type: "coins", coins: "", months: 1 };
+const umEditPick = { type: "coins", coins: "", months: 1 };
+umPicker(umEl("umPickCreate"), umCreatePick);
+
+// ---- admin login to B ----
+onAuthStateChanged(authBAdmin, (u) => {
+    umEl("umLogin").classList.toggle("hidden", !!u);
+    umEl("umBody").classList.toggle("hidden", !u);
+    if (u) { umLoad(); }
+    
+});
+window.umAdminLogin = async function (e) {
+    e.preventDefault();
+    const b = umEl("umLoginBtn"); b.disabled = true;
+    try { await signInWithEmailAndPassword(authBAdmin, umEl("umAdminEmail").value.trim(), umEl("umAdminPass").value); umEl("umAdminPass").value = ""; }
+    catch (err) { umSay("Login failed", true, "lock", err.code || err.message); }
+    finally { b.disabled = false; }
+};
+window.umAdminLogout = () => signOut(authBAdmin);
+
+// ---- create account ----
+window.umCreate = async function (e) {
+    e.preventDefault();
+    const email = umEl("umEmail").value.trim(), pass = umEl("umPass").value, plan = umPlanFrom(umCreatePick);
+    if (!/^\S+@\S+\.\S+$/.test(email)) return umSay("Invalid Gmail", true, "mail", "Enter a valid Gmail address.");
+    if (pass.length < 6) return umSay("Password too short", true, "key", "Use 6 or more characters.");
+    if (!plan) return umSay(umCreatePick.type === "coins" ? "Coins missing" : "Plan length missing", true, umCreatePick.type === "coins" ? "coins" : "calendar", umCreatePick.type === "coins" ? "Enter how many coins to give." : "Pick a plan length.");
+    await umReady;
+    if (!umKey) return umSay("Encryption unavailable", true, "lock", "Open the Uploader over https so passwords can be saved safely.");
+    const btn = umEl("umCreateBtn"); btn.disabled = true;
+    let uid = null;
+    try {
+        const cred = await createUserWithEmailAndPassword(authBCreate, email, pass);
+        uid = cred.user.uid;
+        await signOut(authBCreate);
+        await set(ref(dbB, "users/" + uid), { email, active: true, createdAt: Date.now() });
+        await umWritePlan(uid, plan);
+        await set(ref(dbB, "userSecrets/" + uid), { password: await umEnc(pass) });
+        umSay("Account created", false, "user-plus", email + " · " + umPlanText(plan));
+        umEl("umEmail").value = ""; umEl("umPass").value = "";
+        umLoad();
+    } catch (err) {
+        umSay(err.code === "auth/email-already-in-use" ? "Gmail already used" : (uid ? "Created, but saving failed" : "Create failed"), true, "alert-circle", err.code === "auth/email-already-in-use" ? "That Gmail already has an account." : (err.code || err.message));
+    } finally { btn.disabled = false; }
+};
+
+// Coins accounts -> coinAccounts/{uid} = { coins } ; Paid accounts -> paidAccounts/{uid} = { months, days, expiresAt }
+// An account lives in exactly ONE of the two; saving a plan moves it and clears the other + any old users/{uid}/plan.
+async function umWritePlan(uid, plan) {
+    const upd = { ["users/" + uid + "/plan"]: null };
+    if (plan.type === "coins") { upd["coinAccounts/" + uid] = { coins: plan.coins }; upd["paidAccounts/" + uid] = null; }
+    else { upd["paidAccounts/" + uid] = { days: plan.days, startedAt: Date.now() }; upd["coinAccounts/" + uid] = null; }
+    await update(ref(dbB), upd);
+}
+
+// ---- password vault: passwords are stored ENCRYPTED in Data B (userSecrets); the Uploader opens them with your vault key ----
+const UM_PFX = "enc1:";
+let umKey = null;
+const umB64 = (u8) => { let s = ""; u8.forEach(c => s += String.fromCharCode(c)); return btoa(s); };
+const umUnB64 = (s) => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+async function umDeriveKey(pass) {
+    const base = await crypto.subtle.importKey("raw", new TextEncoder().encode(pass), "PBKDF2", false, ["deriveKey"]);
+    return crypto.subtle.deriveKey({ name: "PBKDF2", salt: new TextEncoder().encode("sakura-realm-vault-v1"), iterations: 200000, hash: "SHA-256" }, base, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
+}
+async function umEnc(text) {
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const ct = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, umKey, new TextEncoder().encode(text)));
+    const all = new Uint8Array(12 + ct.length); all.set(iv); all.set(ct, 12);
+    return UM_PFX + umB64(all);
+}
+// returns the plain text, "" for nothing, or null when it is locked / cannot be opened
+async function umDec(s) {
+    if (!s) return "";
+    if (!String(s).startsWith(UM_PFX)) return String(s);   // old plain value (gets encrypted on the next unlock)
+    if (!umKey) return null;
+    try {
+        const all = umUnB64(String(s).slice(UM_PFX.length));
+        return new TextDecoder().decode(await crypto.subtle.decrypt({ name: "AES-GCM", iv: all.slice(0, 12) }, umKey, all.slice(12)));
+    } catch (e) { return null; }
+}
+// no vault key to type: the Uploader opens the passwords by itself, the database only ever holds the encrypted text
+const UM_SECRET = "sakura-realm-uploader::user-password-vault::v2";
+const umReady = umDeriveKey(UM_SECRET).then(k => { umKey = k; }).catch(e => console.warn("crypto unavailable:", e && e.message));
+
+// ---- history list (search + render) ----
+let umData = {}, umRows = [];
+function umHay(uid, u) {
+    const p = u.plan || {}, pi = p.type === "paid" ? umPaidInfo(p, u.createdAt) : null;
+    const bits = [u.email, p.type === "coins" ? "coins coin " + p.coins : p.type === "paid" ? "paid plan " + pi.left + " days " + (pi.active ? "active" : "no active inactive expired") : "no plan", u.createdAt ? umDate(u.createdAt) : ""];
+    return bits.join(" ").toLowerCase();
+}
+function umRender() {
+    const box = umEl("umList"), qi = umEl("umSearch"), q = (qi.value || "").trim().toLowerCase();
+    umEl("umSearchClear").classList.toggle("hidden", !q);
+    const toks = q ? q.split(/\s+/) : [];
+    const rows = toks.length ? umRows.filter(([uid, u]) => { const h = umHay(uid, u); return toks.every(t => h.includes(t)); }) : umRows;
+    umEl("umResult").textContent = q ? rows.length + " of " + umRows.length + " accounts" : umRows.length + " accounts";
+    box.innerHTML = rows.length ? rows.map(([uid, u]) => {
+        const p = u.plan || {};
+        const tag = p.type === "coins" ? `<span class="um-tag coins">${umIcon("coins")} Coins</span>`
+            : p.type === "paid" ? (umPaidInfo(p, u.createdAt).active ? `<span class="um-tag paid">${umIcon("crown")} Paid</span>` : `<span class="um-tag off">${umIcon("crown")} Paid · No active</span>`) : `<span class="um-tag none">No plan</span>`;
+        let stats = "";
+        if (p.type === "coins") stats = `<div class="um-kv is-gold">${umIcon("coins")}<span>Coins left</span><b>${umEsc(p.coins)}</b></div>`;
+        else if (p.type === "paid") {
+            const pi = umPaidInfo(p, u.createdAt);
+            stats = `<div class="um-kv ${pi.active ? "is-teal" : "is-bad"}">${umIcon("calendar")}<span>Days left</span><b>${pi.left} days${pi.active ? ` <em>until ${umDate(pi.exp)}</em>` : ` <em>No active</em>`}</b></div>`;
+        }
+        if (u.createdAt) stats += `<div class="um-kv">${umIcon("history")}<span>Created</span><b>${umDate(u.createdAt)}</b></div>`;
+        const pw = u.pwLocked
+            ? `<span class="um-locked">${umIcon("lock")} unreadable</span>`
+            : `<span data-real="${umEsc(u.password)}" data-hidden="1">${u.password ? "••••••••" : "—"}</span>${u.password ? `<button type="button" data-act="eye" title="Show / hide password">${umIcon("eye")}</button>` : ""}`;
+        return `<div class="um-item" data-uid="${umEsc(uid)}">
+          <div class="um-av">${umEsc((u.email || "?").charAt(0).toUpperCase())}</div>
+          <div class="um-main"><div class="um-mail">${umEsc(u.email)}</div>
+            <div class="um-pass">${umIcon("key")}${pw}</div></div>
+          <div class="um-side"><button type="button" class="um-act edit" data-act="edit" title="Manage Coins / Paid">${umIcon("pencil")}</button><button type="button" class="um-act del" data-act="del" title="Delete account">${umIcon("trash")}</button></div>
+          <div class="um-meta">${tag}<div class="um-kvs">${stats}</div></div></div>`;
+    }).join("") : (q ? `<div class="um-empty">${umIcon("search")} No account matches "${umEsc(q)}".</div>` : '<div class="um-empty">No accounts yet. Create the first one above.</div>');
+}
+umEl("umSearch").addEventListener("input", umRender);
+umEl("umSearchClear").addEventListener("click", () => { umEl("umSearch").value = ""; umRender(); umEl("umSearch").focus(); });
+
+async function umLoad() {
+    const box = umEl("umList");
+    try {
+        await umReady;
+        const [us, ss, cs, ps] = await Promise.all([get(ref(dbB, "users")), get(ref(dbB, "userSecrets")), get(ref(dbB, "coinAccounts")), get(ref(dbB, "paidAccounts"))]);
+        const users = us.exists() ? us.val() : {}, secrets = ss.exists() ? ss.val() : {};
+        const coinAcc = cs.exists() ? cs.val() : {}, paidAcc = ps.exists() ? ps.val() : {};
+        // Daily countdown: write the REAL days left back into Data B (30 -> 29 -> 28 ... -> 0). The end date never moves (startedAt is shifted with it).
+        try {
+            const upd = {};
+            Object.entries(paidAcc).forEach(([uid, p]) => {
+                const pi = umPaidInfo(p, (users[uid] || {}).createdAt);
+                const legacy = p.months !== undefined || p.expiresAt !== undefined || p.days === undefined;
+                if (legacy || Number(p.days) !== pi.left) {
+                    const np = { days: pi.left, startedAt: pi.exp - pi.left * 86400000 };
+                    upd["paidAccounts/" + uid] = np; paidAcc[uid] = np;
+                }
+            });
+            if (Object.keys(upd).length) await update(ref(dbB), upd);
+        } catch (e) { console.warn("days sync skipped:", e && e.message); }
+        // old plain-text passwords get encrypted automatically
+        const pws = {};
+        for (const uid of Object.keys(users)) {
+            const raw = (secrets[uid] || {}).password || "";
+            const val = await umDec(raw);
+            pws[uid] = { val: val === null ? "" : val, locked: val === null };
+        }
+        if (umKey) {
+            try {
+                const mig = {};
+                for (const uid of Object.keys(users)) { const raw = (secrets[uid] || {}).password; if (raw && !String(raw).startsWith(UM_PFX)) mig["userSecrets/" + uid + "/password"] = await umEnc(raw); }
+                if (Object.keys(mig).length) await update(ref(dbB), mig);
+            } catch (e) { console.warn("vault migrate skipped:", e && e.message); }
+        }
+        umData = {};
+        Object.entries(users).forEach(([uid, u]) => { const plan = coinAcc[uid] ? { type: "coins", coins: coinAcc[uid].coins } : paidAcc[uid] ? { type: "paid", ...paidAcc[uid] } : (u.plan || null);   // u.plan = old accounts not moved yet
+            umData[uid] = { ...u, plan, password: pws[uid].val, pwLocked: pws[uid].locked }; });
+        umRows = Object.entries(umData).sort((a, b) => (b[1].createdAt || 0) - (a[1].createdAt || 0));
+        umEl("umCntAll").textContent = umRows.length;
+        umEl("umCntCoins").textContent = umRows.filter(r => r[1].plan && r[1].plan.type === "coins").length;
+        umEl("umCntPaid").textContent = umRows.filter(r => r[1].plan && r[1].plan.type === "paid").length;
+        umRender();
+    } catch (err) { box.innerHTML = ""; umSay("Could not load users", true, "alert-circle", err.code || err.message); }
+}
+
+let umEditUid = null;
+umEl("umList").addEventListener("click", async (ev) => {
+    const b = ev.target.closest("[data-act]"); if (!b) return;
+    const item = b.closest(".um-item"), uid = item.dataset.uid, u = umData[uid];
+    if (b.dataset.act === "eye") {
+        const sp = item.querySelector("[data-real]"), hidden = sp.dataset.hidden === "1";
+        sp.textContent = hidden ? sp.dataset.real : "••••••••"; sp.dataset.hidden = hidden ? "0" : "1";
+    }
+    if (b.dataset.act === "edit") {
+        umEditUid = uid; umEl("umEditMail").textContent = u.email;
+        const p = u.plan || {};
+        umEditPick.type = p.type === "paid" ? "paid" : "coins";
+        umEditPick.coins = p.type === "coins" ? String(p.coins) : "";
+        { const dd = p.type === "paid" ? umPaidInfo(p, u.createdAt).days : 0; umEditPick.months = (UM_MONTHS.find(x => x[0] * 30 === dd) || [1])[0]; }
+        umPicker(umEl("umPickEdit"), umEditPick);
+        umEl("umModal").classList.remove("hidden");
+    }
+    if (b.dataset.act === "del") {
+        const ok = await showDialog({ title: "Delete this account?", message: u.email + " will lose access to Sakura Realm. (The login itself stays in B Authentication; remove it in the Firebase Console if you want it gone completely.)", confirmText: "Delete", cancelText: "Cancel" });
+        if (!ok) return;
+        try { await remove(ref(dbB, "users/" + uid)); await remove(ref(dbB, "userSecrets/" + uid)); await remove(ref(dbB, "coinAccounts/" + uid)); await remove(ref(dbB, "paidAccounts/" + uid)); umSay("Account deleted", false, "trash", u.email); umLoad(); }
+        catch (err) { umSay("Delete failed", true, "alert-circle", err.code || err.message); }
+    }
+});
+window.umCloseEdit = () => { umEl("umModal").classList.add("hidden"); umEditUid = null; };
+window.umSaveEdit = async function () {
+    const plan = umPlanFrom(umEditPick);
+    if (!plan) return umSay(umEditPick.type === "coins" ? "Coins missing" : "Plan length missing", true, umEditPick.type === "coins" ? "coins" : "calendar", umEditPick.type === "coins" ? "Enter how many coins to give." : "Pick a plan length.");
+    try { await umWritePlan(umEditUid, plan); const em = umData[umEditUid] && umData[umEditUid].email; umCloseEdit(); umSay("Plan updated", false, plan.type === "coins" ? "coins" : "crown", (em ? em + " · " : "") + umPlanText(plan)); umLoad(); }
+    catch (err) { umSay("Save failed", true, "alert-circle", err.code || err.message); }
+};
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") umCloseEdit(); });
+
+
+// ---- Coins chapter history (chapters uploaded with a coin price: Data A chapters + Data B chapterPrices) ----
+function renderCoinHistory(allItems) {
+    const box = document.getElementById("chHistList"), cnt = document.getElementById("chHistCount");
+    if (!box) return;
+    const rows = [];
+    (allItems || []).forEach(({ id, data }) => {
+        Object.entries((data && data.chapters) || {}).forEach(([chId, ch]) => {
+            const coins = coinsOfCh(id, chId);
+            if (coins > 0) rows.push({ manga: data.title || id, cover: data.image || data.cover_image || "", title: (ch && ch.chapter_title) || "Chapter", at: (ch && ch.created_at) || 0, coins, adult: data && mangaNodeById[id] === ADULT_NODE });
+        });
+    });
+    rows.sort((a, b) => b.at - a.at);
+    if (cnt) cnt.textContent = rows.length;
+    box.innerHTML = rows.length ? rows.map(r => `
+        <div class="ch-hist-item">
+            ${r.cover ? `<img class="ch-hist-cover" src="${esc(r.cover)}" alt="" loading="lazy">` : `<span class="ch-hist-cover ph">${ic("book-open")}</span>`}
+            <div class="ch-hist-main"><div class="ch-hist-manga">${esc(r.manga)}</div><div class="ch-hist-ch">${ic("hash")}${esc(r.title)}</div>${r.at ? `<div class="ch-hist-date">${ic("clock")}${new Date(r.at).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}</div>` : ""}</div>
+            <span class="ch-hist-coins">${ic("coins")}<b>${r.coins}</b></span>
+        </div>`).join("") : `<div class="um-empty">${ic("coins")} No coin chapters yet. Chapters uploaded with Coins show up here.</div>`;
+}
