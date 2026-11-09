@@ -1716,7 +1716,7 @@ window.addEventListener('DOMContentLoaded', async () => {
    Saved in Firebase "layoutControl" -> { normal:{hero,history}, adult:{hero,history} }, each {size,x,y}
    Same numbers as the website:  size = % (100 = normal) | x = px (+ right) | y = px (+ down)
    ===================================================================== */
-const LC_SITE = 'https://tomatomanga.github.io/Sakura-Realm/';        // where reze.webp / makima.webp / adult-*.webp live
+const LC_SITE = 'https://sakurarealm3.github.io/Sakura-Realm/';        // where reze.webp / makima.webp / adult-*.webp live
 const LC_IMG = { normal: { hero: 'reze.webp', history: 'makima.webp' }, adult: { hero: 'adult-hero.webp', history: 'adult-history.webp' } };
 const LC_DEFAULT = {
     normal: { hero: { size: 100, x: 0, y: 0 },  history: { size: 100, x: 0, y: 0 } },
