@@ -1526,8 +1526,14 @@ window.closeDeleteModal = function() {
 }
 
 // --- Delete progress UI (Cloudinary -> Firebase) ---
+function delSetLabels(title, a, b) {
+    document.querySelector("#deleteConfirmModal h3").textContent = title;
+    document.querySelector("#delStepCloud .del-label").textContent = a;
+    document.querySelector("#delStepFb .del-label").textContent = b;
+}
 function delReset() {
     delBusy = false;
+    delSetLabels("Delete this item?", "Cloudinary", "Firebase");
     const box = document.getElementById("delProgress");
     box.classList.add("hidden");
     box.classList.remove("is-error", "is-done");
@@ -1578,24 +1584,79 @@ async function deleteImagesFromCloudinary(urls, onProgress) {
     let done = 0;
     for (let i = 0; i < urls.length; i += CLEAN_BATCH) {
         const batch = urls.slice(i, i + CLEAN_BATCH);
-        const token = await user.getIdToken();   // cached; refreshes automatically when needed
         let res, data = {};
-        try {
-            res = await fetch(CLEANER_URL, {
-                method: "POST",
-                headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
-                body: JSON.stringify({ urls: batch })
-            });
-        } catch (e) { throw new Error("Cannot reach the Cloudinary cleaner (network)."); }
-        try { data = await res.json(); } catch (_) {}
-        if (!res.ok || !data.ok) throw new Error(data.error || ("Cloudinary cleaner error " + res.status));
+        // cached token first; on 401/403 get a brand-new token and try once more
+        for (let attempt = 0; attempt < 2; attempt++) {
+            const token = await user.getIdToken(attempt === 1);
+            try {
+                res = await fetch(CLEANER_URL, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
+                    body: JSON.stringify({ urls: batch })
+                });
+            } catch (e) { throw new Error("Cannot reach the Cloudinary cleaner (network)."); }
+            data = {};
+            try { data = await res.json(); } catch (_) {}
+            if (res.status !== 401 && res.status !== 403) break;
+        }
+        if (!res.ok || !data.ok) throw new Error((data.error || "Cloudinary cleaner error") + " (HTTP " + res.status + ")");
         done += batch.length;
         if (onProgress) onProgress(done, urls.length);
     }
 }
 
+// Delete a user account with the same progress dialog as manga history: Login (B Authentication) -> Records (Data B)
+async function confirmDeleteUser() {
+    const uid = document.getElementById("deleteTargetId").value;
+    const mail = window.umDelMail || "";
+    delBusy = true;
+    const box = document.getElementById("delProgress");
+    const okBtn = document.getElementById("delConfirmBtn"), noBtn = document.getElementById("delCancelBtn");
+    box.classList.remove("hidden", "is-error", "is-done");
+    document.getElementById("deleteModalDesc").classList.add("hidden");
+    okBtn.disabled = true; noBtn.disabled = true;
+    okBtn.innerHTML = `${ic("loader", "ic-spin")} Deleting...`;
+    let stage = "login", loginGone = true;
+    try {
+        delSetStep("delStepCloud", "active", ""); delSetStep("delStepFb", "", "");
+        delSetBar(8, "Removing login from B Authentication...");
+        try { await deleteBAuthUserViaWorker(uid); delSetStep("delStepCloud", "done", ""); }
+        catch (we) {
+            if (we && we.code === "not_configured") { loginGone = false; delSetStep("delStepCloud", "skip", "not set up"); }
+            else throw we;
+        }
+        stage = "records";
+        delSetStep("delStepFb", "active", "");
+        delSetBar(55, "Removing records from Data B...");
+        await remove(ref(dbB, "users/" + uid));
+        delSetBar(70, "Removing records from Data B...");
+        await remove(ref(dbB, "userSecrets/" + uid));
+        delSetBar(82, "Removing records from Data B...");
+        await remove(ref(dbB, "coinAccounts/" + uid));
+        await remove(ref(dbB, "paidAccounts/" + uid));
+        delSetStep("delStepFb", "done", "");
+        box.classList.add("is-done");
+        delSetBar(100, loginGone ? "Deleted successfully" : "Records deleted. Login is still in B Authentication (Worker not set up).");
+        okBtn.innerHTML = `${ic("check-circle")} Done`;
+        await new Promise(r => setTimeout(r, loginGone ? 900 : 2200));
+        delBusy = false;
+        closeDeleteModal();
+        umSay("Account deleted", false, "trash", mail + (loginGone ? " · login removed" : " · login still in B Authentication"));
+        umLoad();
+    } catch (err) {
+        delBusy = false;
+        box.classList.add("is-error");
+        delSetStep(stage === "login" ? "delStepCloud" : "delStepFb", "error", "failed");
+        document.getElementById("delStatusText").textContent =
+            (stage === "login" ? "Login removal failed - nothing was deleted. " : "Records delete failed (login already removed - press Retry). ") + (err.message || err.code || "");
+        okBtn.disabled = false; noBtn.disabled = false;
+        okBtn.innerHTML = `${ic("trash")} Retry`;
+    }
+}
+
 window.confirmDelete = async function() {
     if (delBusy) return;
+    if (document.getElementById("deleteTargetType").value === "user") return confirmDeleteUser();
     const targetType = document.getElementById("deleteTargetType").value;
     const parentId = document.getElementById("deleteTargetParentId").value;
     const targetId = document.getElementById("deleteTargetId").value;
@@ -1716,7 +1777,7 @@ window.addEventListener('DOMContentLoaded', async () => {
    Saved in Firebase "layoutControl" -> { normal:{hero,history}, adult:{hero,history} }, each {size,x,y}
    Same numbers as the website:  size = % (100 = normal) | x = px (+ right) | y = px (+ down)
    ===================================================================== */
-const LC_SITE = 'https://sakurarealm3.github.io/Sakura-Realm/';        // where reze.webp / makima.webp / adult-*.webp live
+const LC_SITE = 'https://sakurareaml3.github.io/Sakura-Realm/';        // where reze.webp / makima.webp / adult-*.webp live
 const LC_IMG = { normal: { hero: 'reze.webp', history: 'makima.webp' }, adult: { hero: 'adult-hero.webp', history: 'adult-history.webp' } };
 const LC_DEFAULT = {
     normal: { hero: { size: 100, x: 0, y: 0 },  history: { size: 100, x: 0, y: 0 } },
@@ -2133,12 +2194,41 @@ umEl("umList").addEventListener("click", async (ev) => {
         umEl("umModal").classList.remove("hidden");
     }
     if (b.dataset.act === "del") {
-        const ok = await showDialog({ title: "Delete this account?", message: u.email + " will lose access to Sakura Realm. (The login itself stays in B Authentication; remove it in the Firebase Console if you want it gone completely.)", confirmText: "Delete", cancelText: "Cancel" });
-        if (!ok) return;
-        try { await remove(ref(dbB, "users/" + uid)); await remove(ref(dbB, "userSecrets/" + uid)); await remove(ref(dbB, "coinAccounts/" + uid)); await remove(ref(dbB, "paidAccounts/" + uid)); umSay("Account deleted", false, "trash", u.email); umLoad(); }
-        catch (err) { umSay("Delete failed", true, "alert-circle", err.code || err.message); }
+        // same style as manga history delete: open the progress dialog (Login -> Records)
+        window.umDelMail = u.email;
+        delReset();
+        delSetLabels("Delete this account?", "Login (B Auth)", "Records (Data B)");
+        document.getElementById("deleteModalDesc").textContent = u.email + " will lose access to Sakura Realm, and its login (Gmail) is removed from B Authentication so it can be used again.";
+        document.getElementById("deleteTargetType").value = "user";
+        document.getElementById("deleteTargetParentId").value = "";
+        document.getElementById("deleteTargetId").value = uid;
+        document.getElementById("deleteConfirmModal").classList.remove("hidden");
     }
 });
+// Ask the Worker to delete a user's LOGIN from B Authentication (needs the B service account saved in the Worker).
+async function deleteBAuthUserViaWorker(uid) {
+    if (!CLEANER_URL) { const e = new Error("no worker"); e.code = "not_configured"; throw e; }
+    const user = auth.currentUser;
+    if (!user) throw new Error("Please sign in again.");
+    let res, data = {};
+    for (let attempt = 0; attempt < 2; attempt++) {
+        const token = await user.getIdToken(attempt === 1);
+        try {
+            res = await fetch(CLEANER_URL, {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
+                body: JSON.stringify({ action: "deleteAuthUser", uid })
+            });
+        } catch (e) { throw new Error("Cannot reach the Worker (network)."); }
+        data = {}; try { data = await res.json(); } catch (_) {}
+        if (res.status !== 401 && res.status !== 403) break;
+    }
+    if (res.ok && data.ok) return data;
+    const err = new Error((data.error || "Worker error") + " (HTTP " + res.status + ")");
+    if (data.code === "not_configured") err.code = "not_configured";
+    throw err;
+}
+
 window.umCloseEdit = () => { umEl("umModal").classList.add("hidden"); umEditUid = null; };
 window.umSaveEdit = async function () {
     const plan = umPlanFrom(umEditPick);
